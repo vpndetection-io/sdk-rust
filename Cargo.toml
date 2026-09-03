@@ -1,0 +1,39 @@
+[package]
+name = "vpndetection"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The official Rust client library for the VPNDetection API: anonymity detection covering VPNs, residential proxies, Tor nodes, hosting servers, CDNs and relays."
+authors = ["VPNDetection <support@vpndetection.io>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://vpndetection.io"
+repository = "https://github.com/vpndetection-io/sdk-rust"
+documentation = "https://docs.rs/vpndetection"
+keywords = ["vpn", "proxy", "tor", "geoip", "ip"]
+categories = ["api-bindings", "network-programming"]
+exclude = ["/spec", "/scripts", "/.github"]
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+indexmap = "2"
+ipnet = "2"
+moka = { version = "0.12", features = ["future"] }
+reqwest = { version = "0.13", default-features = false, features = ["query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_with = { version = "3", default-features = false, features = ["macros", "std"] }
+thiserror = "2"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+
+[features]
+default = ["rustls-tls"]
+rustls-tls = ["reqwest/rustls", "reqwest/rustls-native-certs"]
+native-tls = ["reqwest/default-tls"]
+
+[package.metadata.docs.rs]
+all-features = true

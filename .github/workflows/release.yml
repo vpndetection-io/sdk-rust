@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for crates.io trusted publishing, which exchanges this token
+      # for a short-lived API token so no secret has to be stored. Free on
+      # public repositories.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      # The tag only TRIGGERS this; crates.io publishes whatever the manifest
+      # says. Without this check, tagging v1.0.1 against a 1.0.0 Cargo.toml
+      # republishes 1.0.0, or fails as "already uploaded" with a confusing
+      # message.
+      - name: Tag must match the crate version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          if [ "$tag" != "$version" ] ; then
+            echo "tag $tag does not match the crate version $version" >&2
+            exit 1
+          fi
+
+      - run: cargo test --all-features
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish --token "${{ steps.auth.outputs.token }}"

@@ -1,0 +1,5 @@
+# rustfmt's default width, which is what a Rust contributor expects, and its
+# widest small-item heuristics, which keep an assert or a builder chain on one
+# line instead of exploding it over five.
+max_width = 100
+use_small_heuristics = "Max"
