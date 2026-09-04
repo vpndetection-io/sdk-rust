@@ -26,6 +26,13 @@ pub enum Error {
     #[error("vpndetection: network: {0}")]
     Network(#[from] reqwest::Error),
 
+    /// A dataset transfer failed on this side of the socket: the stream ended
+    /// before the promised length (`UnexpectedEof`), the disk filled, or the
+    /// destination could not be written. The inner
+    /// [`std::io::ErrorKind`] is what tells those apart.
+    #[error("vpndetection: io: {0}")]
+    Io(#[from] std::io::Error),
+
     /// The client was asked for something it cannot do, before any request was
     /// sent: an unusable base URL, or a cache sized at zero.
     #[error("vpndetection: {0}")]
@@ -48,6 +55,7 @@ pub enum ErrorKind {
     QuotaExceeded,
     ServerError,
     Network,
+    Io,
 }
 
 impl ErrorKind {
@@ -62,6 +70,7 @@ impl ErrorKind {
             Self::QuotaExceeded => "quota_exceeded",
             Self::ServerError => "server_error",
             Self::Network => "network",
+            Self::Io => "io",
         }
     }
 }
@@ -77,13 +86,24 @@ impl Error {
         match self {
             Self::Api { kind, .. } => *kind,
             Self::Network(_) => ErrorKind::Network,
+            Self::Io(_) => ErrorKind::Io,
             Self::Config(_) => ErrorKind::BadRequest,
         }
     }
 
     /// Whether retrying this exact request could succeed.
+    ///
+    /// A transfer that ended early is worth another attempt and a full disk is
+    /// not, and both arrive as [`Error::Io`], so the two are separated by the
+    /// inner [`std::io::ErrorKind`] rather than lumped together.
     pub fn retryable(&self) -> bool {
-        matches!(self.kind(), ErrorKind::RateLimited | ErrorKind::ServerError | ErrorKind::Network)
+        match self {
+            Self::Io(e) => e.kind() == std::io::ErrorKind::UnexpectedEof,
+            _ => matches!(
+                self.kind(),
+                ErrorKind::RateLimited | ErrorKind::ServerError | ErrorKind::Network
+            ),
+        }
     }
 
     /// The API's own explanation, or the transport failure's text.
@@ -91,6 +111,7 @@ impl Error {
         match self {
             Self::Api { message, .. } => message.clone(),
             Self::Network(e) => e.to_string(),
+            Self::Io(e) => e.to_string(),
             Self::Config(m) => m.clone(),
         }
     }
@@ -114,21 +135,27 @@ impl Error {
     pub(crate) fn from_response(status: u16, retry_after: Option<Duration>, body: &str) -> Self {
         let message = envelope_message(body)
             .unwrap_or_else(|| format!("request failed with status {status}"));
-        let kind = match status {
-            // Present means transient, absent means an allowance is spent.
-            // Nothing else in the response separates the two.
-            429 if retry_after.is_some() => ErrorKind::RateLimited,
-            429 => ErrorKind::QuotaExceeded,
-            401 => ErrorKind::Unauthorized,
-            403 => ErrorKind::Forbidden,
-            // Any other 4xx is a CLIENT error. Falling through to the
-            // server_error default would make it retryable, so a bad dataset id
-            // would be retried twice before failing. Classify on the RANGE, not
-            // on an enumerated list.
-            400..=499 => ErrorKind::BadRequest,
-            _ => ErrorKind::ServerError,
-        };
-        Self::Api { kind, message, status, retry_after }
+        Self::Api { kind: kind_for_status(status, retry_after), message, status, retry_after }
+    }
+}
+
+/// What a status code means for a caller. Object storage answers a spent
+/// presigned link with the same codes the API uses, so the mapping is shared
+/// rather than written twice.
+pub(crate) fn kind_for_status(status: u16, retry_after: Option<Duration>) -> ErrorKind {
+    match status {
+        // Present means transient, absent means an allowance is spent. Nothing
+        // else in the response separates the two.
+        429 if retry_after.is_some() => ErrorKind::RateLimited,
+        429 => ErrorKind::QuotaExceeded,
+        401 => ErrorKind::Unauthorized,
+        403 => ErrorKind::Forbidden,
+        // Any other 4xx is a CLIENT error. Falling through to the server_error
+        // default would make it retryable, so a bad dataset id would be retried
+        // twice before failing. Classify on the RANGE, not on an enumerated
+        // list.
+        400..=499 => ErrorKind::BadRequest,
+        _ => ErrorKind::ServerError,
     }
 }
 

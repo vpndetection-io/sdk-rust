@@ -52,10 +52,28 @@ impl Route {
     }
 }
 
+/// One request the stub was asked for. The headers come along because two of
+/// the download guarantees are about what a request did NOT carry, and a header
+/// that was never sent is invisible to any assertion made on the response.
+#[derive(Clone, Debug)]
+pub struct Call {
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+}
+
+impl Call {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
 #[derive(Default)]
 struct State {
     routes: HashMap<String, Route>,
-    calls: Vec<String>,
+    calls: Vec<Call>,
     in_flight: usize,
     peak: usize,
 }
@@ -124,6 +142,10 @@ impl Stub {
     }
 
     pub fn calls(&self) -> Vec<String> {
+        self.state.lock().unwrap().calls.iter().map(|call| call.path.clone()).collect()
+    }
+
+    pub fn requests(&self) -> Vec<Call> {
         self.state.lock().unwrap().calls.clone()
     }
 
@@ -137,14 +159,15 @@ async fn serve(
     state: Arc<Mutex<State>>,
     delay: Duration,
 ) -> std::io::Result<()> {
-    let path = match read_request_path(&mut socket).await? {
-        Some(path) => path,
+    let call = match read_request(&mut socket).await? {
+        Some(call) => call,
         None => return Ok(()),
     };
+    let path = call.path.clone();
 
     let route = {
         let mut state = state.lock().unwrap();
-        state.calls.push(path.clone());
+        state.calls.push(call);
         state.in_flight += 1;
         state.peak = state.peak.max(state.in_flight);
         state.routes.get(&path).cloned()
@@ -161,9 +184,11 @@ async fn serve(
     result
 }
 
-/// The request line's path, percent-decoded and with any query string dropped,
-/// which is the key routes are held under.
-async fn read_request_path(socket: &mut TcpStream) -> std::io::Result<Option<String>> {
+/// The request line and its headers. The path is percent-decoded and stripped of
+/// any query string, which is the key routes are held under; the full target is
+/// kept in the synthetic `x-stub-target` header, so an assertion about a
+/// credential in a query string has something to read.
+async fn read_request(socket: &mut TcpStream) -> std::io::Result<Option<Call>> {
     let mut request = Vec::new();
     let mut byte = [0u8; 1];
     while !request.ends_with(b"\r\n\r\n") {
@@ -172,12 +197,20 @@ async fn read_request_path(socket: &mut TcpStream) -> std::io::Result<Option<Str
         }
         request.push(byte[0]);
     }
-    let line = String::from_utf8_lossy(&request);
-    let Some(target) = line.split_whitespace().nth(1) else {
+    let text = String::from_utf8_lossy(&request);
+    let mut lines = text.lines();
+    let Some(target) = lines.next().and_then(|line| line.split_whitespace().nth(1)) else {
         return Ok(None);
     };
+
+    let mut headers = vec![("x-stub-target".to_owned(), target.to_owned())];
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push((name.trim().to_lowercase(), value.trim().to_owned()));
+        }
+    }
     let path = target.split('?').next().unwrap_or(target);
-    Ok(Some(percent_decode(path)))
+    Ok(Some(Call { path: percent_decode(path), headers }))
 }
 
 async fn write_response(socket: &mut TcpStream, route: &Route) -> std::io::Result<()> {

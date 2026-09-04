@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::header::{AUTHORIZATION, HeaderMap, RETRY_AFTER};
 use serde::de::DeserializeOwned;
 
-use crate::error::{Error, ErrorKind};
+use crate::error::{Error, ErrorKind, kind_for_status};
 
 /// Every request the crate makes. Six GET operations with no request bodies,
 /// which is what the whole API is.
@@ -87,6 +87,32 @@ impl Transport {
                 Err(Error::from_response(status, retry_after, &body))
             }
         }
+    }
+
+    /// A GET to an absolute URL carrying NO credential, for a presigned link
+    /// that authorizes itself.
+    ///
+    /// The body is handed back unread, so a dataset of any size is streamed by
+    /// the caller rather than buffered here. The API key is not merely omitted
+    /// from this request, the redirect is not followed at all: reqwest's
+    /// redirect policy is a CLIENT-level setting and some versions carry
+    /// request headers across a redirect, so issuing the second request by hand
+    /// is the only way the key provably does not travel to object storage.
+    pub(crate) async fn get_file(&self, url: &str) -> Result<reqwest::Response, Error> {
+        let response = self.http.get(url).send().await?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(response);
+        }
+        // The body is left unread: the status is what separates a lapsed link
+        // from a refused one, and nothing bounds the size of an error body.
+        let retry_after = parse_retry_after(response.headers());
+        Err(Error::Api {
+            kind: kind_for_status(status, retry_after),
+            message: format!("object storage refused the download link with status {status}"),
+            status,
+            retry_after,
+        })
     }
 
     async fn send(&self, path: &str, query: &[(&str, &str)]) -> Result<reqwest::Response, Error> {
