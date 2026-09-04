@@ -29,6 +29,11 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
+      # The integration crate is a package of its own, so the root check does not
+      # reach it. rustfmt needs no dependency resolution, which is what lets this
+      # run while nothing satisfying its requirement is published yet; clippy
+      # would need one, so it cannot be gated here at all.
+      - run: cargo fmt --check --manifest-path integration/Cargo.toml
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo doc --no-deps --all-features
         env:
