@@ -32,6 +32,12 @@ pub struct DatasetMetadata {
     /// Bytes per format
     #[serde(rename = "size", skip_serializing_if = "Option::is_none")]
     pub size: Option<std::collections::HashMap<String, i32>>,
+    /// Bytes per format of the evaluation sample, where one is published
+    #[serde(rename = "sample_size", skip_serializing_if = "Option::is_none")]
+    pub sample_size: Option<std::collections::HashMap<String, i32>>,
+    /// Row count in the evaluation sample
+    #[serde(rename = "sample_entries", skip_serializing_if = "Option::is_none")]
+    pub sample_entries: Option<i32>,
 }
 
 impl DatasetMetadata {
@@ -49,6 +55,8 @@ impl DatasetMetadata {
             schema,
             sample: None,
             size: None,
+            sample_size: None,
+            sample_entries: None,
         }
     }
 }

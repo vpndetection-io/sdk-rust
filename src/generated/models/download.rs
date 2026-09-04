@@ -11,6 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// Download : One download ATTEMPT, refusals included - a denial is what answers \"it stopped working\", so they are listed rather than dropped.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Download {
     #[serde(rename = "dataset_id")]
@@ -19,25 +20,51 @@ pub struct Download {
     pub format: String,
     #[serde(rename = "outcome")]
     pub outcome: Outcome,
-    #[serde(
-        rename = "bytes",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub bytes: Option<Option<i32>>,
+    /// The evaluation sample rather than the database itself.
+    #[serde(rename = "sample")]
+    pub sample: bool,
+    /// Object size at redirect time, NOT bytes delivered: the transfer is a presigned redirect straight to object storage, so we never observe it.
+    #[serde(rename = "bytes", deserialize_with = "Option::deserialize")]
+    pub bytes: Option<i32>,
+    #[serde(rename = "http_status", deserialize_with = "Option::deserialize")]
+    pub http_status: Option<i32>,
+    /// The key that made the request. Null when the org acted through the console rather than through a key.
+    #[serde(rename = "apikey_id", deserialize_with = "Option::deserialize")]
+    pub apikey_id: Option<String>,
+    #[serde(rename = "client_ip", deserialize_with = "Option::deserialize")]
+    pub client_ip: Option<String>,
+    #[serde(rename = "user_agent", deserialize_with = "Option::deserialize")]
+    pub user_agent: Option<String>,
     #[serde(rename = "created")]
     pub created: chrono::DateTime<chrono::FixedOffset>,
 }
 
 impl Download {
+    /// One download ATTEMPT, refusals included - a denial is what answers \"it stopped working\", so they are listed rather than dropped.
     pub fn new(
         dataset_id: String,
         format: String,
         outcome: Outcome,
+        sample: bool,
+        bytes: Option<i32>,
+        http_status: Option<i32>,
+        apikey_id: Option<String>,
+        client_ip: Option<String>,
+        user_agent: Option<String>,
         created: chrono::DateTime<chrono::FixedOffset>,
     ) -> Download {
-        Download { dataset_id, format, outcome, bytes: None, created }
+        Download {
+            dataset_id,
+            format,
+            outcome,
+            sample,
+            bytes,
+            http_status,
+            apikey_id,
+            client_ip,
+            user_agent,
+            created,
+        }
     }
 }
 ///
