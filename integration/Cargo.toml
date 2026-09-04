@@ -1,0 +1,27 @@
+# A crate of its own, requiring a PUBLISHED version of the SDK: the point of
+# this suite is the artifact a stranger gets from crates.io, so a path
+# dependency or a [patch.crates-io] entry would quietly defeat all of it, and
+# scripts/run.sh refuses both rather than letting a green run mean nothing.
+#
+# Never published. The parent manifest excludes this directory, so it is not
+# part of the crate either.
+[package]
+name = "vpndetection-integration"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+description = "Exercises the PUBLISHED vpndetection crate against staging. Never published."
+
+[dependencies]
+vpndetection = "^1.0"
+
+# The recording reverse proxy needs the same pieces the library builds its own
+# client from, and sha2 is the digest the download half checks the transferred
+# bytes against. They are regular dependencies rather than dev ones because the
+# fixtures live in a lib target, which cannot see dev-dependencies.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

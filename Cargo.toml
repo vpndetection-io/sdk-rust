@@ -12,7 +12,7 @@ repository = "https://github.com/vpndetection-io/sdk-rust"
 documentation = "https://docs.rs/vpndetection"
 keywords = ["vpn", "proxy", "tor", "geoip", "ip"]
 categories = ["api-bindings", "network-programming"]
-exclude = ["/spec", "/scripts", "/.github"]
+exclude = ["/spec", "/scripts", "/.github", "/integration"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }

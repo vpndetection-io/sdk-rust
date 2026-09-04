@@ -1,0 +1,41 @@
+name: Integration
+
+# Exercises the crate as PUBLISHED on crates.io, against staging. CI compiles
+# this working tree; nothing there would notice a tag that never landed, an
+# `exclude` that dropped a module from the package, or a feature a consumer
+# cannot turn on.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+  schedule:
+    # Off the hour on purpose: scheduled runs bunched at :00 are queued behind
+    # everyone else's and can be dropped entirely under load.
+    - cron: '29 6 * * *'
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # No cache: the point is the download a stranger gets from the
+          # registry, and a warm one could serve a version that has since been
+          # yanked.
+          cache: false
+      # One entry point, used identically by a human and by this job: it skips
+      # with a reason when nothing published satisfies the requirement, and each
+      # tier whose key is missing skips from inside the suite.
+      #
+      # One org per plan tier, because the tier comes from the ORG rather than
+      # from the key. A secret that does not exist interpolates to an empty
+      # string here, which the suite treats as absent.
+      - run: ./scripts/run.sh
+        working-directory: integration
+        env:
+          VPNDETECTION_STAGING_KEY_FREE: ${{ secrets.VPNDETECTION_STAGING_KEY_FREE }}
+          VPNDETECTION_STAGING_KEY_STARTER: ${{ secrets.VPNDETECTION_STAGING_KEY_STARTER }}
+          VPNDETECTION_STAGING_KEY_SCALE: ${{ secrets.VPNDETECTION_STAGING_KEY_SCALE }}
+          VPNDETECTION_STAGING_KEY_MAX: ${{ secrets.VPNDETECTION_STAGING_KEY_MAX }}

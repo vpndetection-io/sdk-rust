@@ -8,3 +8,8 @@
 
 # Scratch tree scripts/generate.sh unpacks the generator's output into.
 /.gen/
+
+# The integration crate is never published and resolves the released SDK afresh
+# on every run, so its lock file is scratch rather than a pin.
+/integration/target/
+/integration/Cargo.lock
