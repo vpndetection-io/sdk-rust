@@ -21,20 +21,8 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:?}", vpn.provider);
     }
 
-    match result.is_hosting {
-        None => println!("hosting detection is not on this plan"),
-        Some(true) => println!("hosting"),
-        Some(false) => println!("not hosting"),
-    }
-    let _ = (
-        result.is_hosting_or_false(),
-        result.is_relay_or_false(),
-        result.is_tor_or_false(),
-        result.is_cdn_or_false(),
-        result.is_resproxy_or_false(),
-        result.is_dcproxy_or_false(),
-        result.is_mobproxy_or_false(),
-    );
+    let key = std::env::var("VPNDETECTION_API_KEY")?;
+    let client = Client::builder().api_key(key).concurrency(32).retries(4).build()?;
 
     let results =
         client.lookup_batch(["45.83.91.1", "8.8.8.8", "1.1.1.1"], BatchOptions::new()).await;
@@ -77,10 +65,17 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
         ErrorKind::QuotaExceeded,
         ErrorKind::ServerError,
         ErrorKind::Network,
+        ErrorKind::Io,
     ];
 
-    let datasets = client.database().list().await?;
+    let families = client.database().list().await?;
     let url = client.database().download_url("vpn_ip_extended_v1", Format::Mmdb).await?;
+    let raw = client.database().download_bytes("cdn_ip_v1", Format::Csvgz).await?;
+    let written =
+        client.database().download("vpn_ip_extended_v1", Format::Mmdb, "./vpn_ip.mmdb").await?;
+
+    result.is_hosting.unwrap_or(false);
+    result.is_hosting.is_none();
     Ok(())
 }
 

@@ -47,17 +47,11 @@ if let Some(vpn) = result.vpn.as_deref() {
 }
 ```
 
-Every field beyond `ip` and `is_vpn` is an `Option`, because your plan decides which of them the API sends. `None` means "not in your plan", which is a different answer from `Some(false)`, so match on the option whenever the two matter:
+Every setting has a default, and `Client::builder()` is where you change one:
 
 ```rust
-match result.is_hosting {
-    None => println!("hosting detection is not on this plan"),
-    Some(true) => println!("hosting"),
-    Some(false) => println!("not hosting"),
-}
+let client = Client::builder().api_key(key).concurrency(32).retries(4).build()?;
 ```
-
-When you only care whether an address is flagged, `unwrap_or(false)` collapses the two, and each flag has an `_or_false` reader that says the same thing where a long chain reads better: `result.is_hosting_or_false()`, `is_relay_or_false()`, `is_tor_or_false()`, `is_cdn_or_false()`, `is_resproxy_or_false()`, `is_dcproxy_or_false()` and `is_mobproxy_or_false()`.
 
 ### Batch lookup
 
@@ -149,22 +143,25 @@ match client.lookup("1.1.1.1").await {
 }
 ```
 
-`kind()` is one of `BadRequest`, `Unauthorized`, `Forbidden`, `RateLimited`, `QuotaExceeded`, `ServerError` or `Network`.
+`kind()` is one of `BadRequest`, `Unauthorized`, `Forbidden`, `RateLimited`, `QuotaExceeded`, `ServerError`, `Network` or `Io`, the last of which is a dataset transfer that could not be written or that ended early.
 
 Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not the same thing. A rate limit is when the API faces extreme traffic bursts and so retrying later works; but a spent quota needs your allowance raised or the window to roll over. The library retries rate limits for you, but not if your quota is exceeded.
 
 ### Database downloads
 
-If your key carries the `db.download` scope, the licensed datasets are available through `client.database()`:
+If your key carries the `db.download` scope, the licensed datasets are available through `client.database()`. A licence covers a dataset FAMILY, so the id you download comes from one of its `versions`:
 
 ```rust
 use vpndetection::Format;
 
-let datasets = client.database().list().await?;
+let families = client.database().list().await?;
+
 let url = client.database().download_url("vpn_ip_extended_v1", Format::Mmdb).await?;
+let raw = client.database().download_bytes("cdn_ip_v1", Format::Csvgz).await?;
+let written = client.database().download("vpn_ip_extended_v1", Format::Mmdb, "./vpn_ip.mmdb").await?;
 ```
 
-`download_url` returns a time-limited link rather than the bytes, so you choose how to transfer a file that can run to gigabytes.
+`download_url` hands back a time-limited link so you can run the transfer yourself. `download` streams to disk through a neighboring `.part` file, so nothing bigger than a chunk is ever held in memory and a transfer that dies half way leaves no truncated file. `download_bytes` holds the whole file in memory, and the catalog runs from `cdn_ip_v1` at 10 KB to `resproxy_ip_90d_v1` at 1.79 GB, so use `download` for anything you have not measured.
 
 ### TLS backends
 
@@ -182,6 +179,15 @@ There is no blocking facade, on purpose: `reqwest::blocking` builds its own runt
 let runtime = tokio::runtime::Runtime::new()?;
 let client = Client::new()?;
 let result = runtime.block_on(client.lookup("45.83.91.1"))?;
+```
+
+### Absent is not false
+
+Every field beyond `ip` and `is_vpn` is an `Option`, because your plan decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+
+```rust
+result.is_hosting.unwrap_or(false);   // when you only want the flag
+result.is_hosting.is_none();          // not in your plan
 ```
 
 ## Other Libraries
