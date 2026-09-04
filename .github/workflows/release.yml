@@ -33,6 +33,13 @@ jobs:
 
       - run: cargo test --all-features
 
+      # crates.io cannot be given a Trusted Publishing config until the crate
+      # EXISTS, so the very first release has to authenticate with a token and
+      # the OIDC exchange fails with "No Trusted Publishing config found". The
+      # step is therefore allowed to fail and the token is the fallback. Once
+      # the crate is published and the config added, OIDC wins on its own and
+      # CARGO_REGISTRY_TOKEN can be deleted.
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
-      - run: cargo publish --token "${{ steps.auth.outputs.token }}"
+        continue-on-error: true
+      - run: cargo publish --token "${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}"
