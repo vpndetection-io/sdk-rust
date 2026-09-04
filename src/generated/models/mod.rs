@@ -20,6 +20,8 @@ pub mod error;
 pub use self::error::ErrorEnvelope;
 pub mod licensed_dataset;
 pub use self::licensed_dataset::LicensedDataset;
+pub mod licensed_version;
+pub use self::licensed_version::LicensedVersion;
 pub mod lookup_error;
 pub use self::lookup_error::LookupError;
 pub mod lookup_response;

@@ -6,7 +6,9 @@ mod support;
 use std::time::{Duration, Instant};
 
 use support::{Route, Stub};
-use vpndetection::{BatchOptions, Client, ErrorKind, Format, LookupOptions};
+use vpndetection::{
+    BatchOptions, Client, ErrorKind, Format, LookupOptions, SampleFormat, Standing,
+};
 
 fn many_addrs() -> Vec<String> {
     (1..=12).map(|i| format!("9.9.9.{i}")).collect()
@@ -225,12 +227,16 @@ async fn checksums_returns_the_whole_digest_set_from_under_its_key() {
     assert_eq!(sums.sha512.as_deref(), Some("s512"));
 }
 
+/// A licence is held against a FAMILY, and the ids a download takes are one
+/// level further down still. The spec used to claim `{id, formats}` here, which
+/// decoded into a family whose every field was empty, so list -> download was
+/// broken in every SDK; the depth is pinned so it cannot silently go back.
 #[tokio::test]
-async fn the_database_list_unwraps_one_level_down() {
+async fn the_database_list_unwraps_a_family_and_its_versions() {
     let stub = Stub::start([(
         "/api/v1/database/list".to_owned(),
         Route::ok(
-            r#"{"datasets":[{"id":"vpn_ip_extended_v1","name":"VPN IP Extended","redistribution":"internal","in_term":true,"formats":[{"format":"mmdb","bytes":1234}]}]}"#,
+            r#"{"datasets":[{"base":"vpn_ip","name":"VPN IP","redistribution":"internal","in_term":true,"standing":"licensed","versions":[{"id":"vpn_ip_extended_v1","version":1,"formats":[{"format":"mmdb","bytes":1234}],"sampleFormats":["csvgz"]}]}]}"#,
         ),
     )])
     .await;
@@ -239,8 +245,13 @@ async fn the_database_list_unwraps_one_level_down() {
     let datasets = client.database().list().await.expect("list");
 
     assert_eq!(datasets.len(), 1);
-    assert_eq!(datasets[0].id, "vpn_ip_extended_v1");
-    assert_eq!(datasets[0].formats[0].format, Format::Mmdb);
+    assert_eq!(datasets[0].base, "vpn_ip");
+    assert_eq!(datasets[0].standing, Standing::Licensed);
+    let version = &datasets[0].versions[0];
+    assert_eq!(version.id, "vpn_ip_extended_v1", "the id a download takes lives on the VERSION");
+    assert_eq!(version.version, 1);
+    assert_eq!(version.formats[0].format, Format::Mmdb);
+    assert_eq!(version.sample_formats.as_deref(), Some([SampleFormat::Csvgz].as_slice()));
 }
 
 /// A 404 from a bad dataset id is a CLIENT error. Letting it fall through to the
