@@ -19,7 +19,13 @@ const DEFAULT_CACHE_CAPACITY: u64 = 10_000;
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_CONCURRENCY: usize = 8;
 const DEFAULT_RETRIES: u32 = 2;
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+// Bounds how long we wait for CONNECT and for the next BYTE, never the whole
+// transfer. A total `.timeout()` also covers the response body, so it silently
+// caps how large a database this client can fetch: the same client fetches the
+// presigned link, and a dataset that legitimately takes longer than the
+// deadline aborts however healthy the link is. Datasets here reach gigabytes.
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(250);
 
 /// A client for the VPNDetection API.
@@ -246,7 +252,8 @@ impl ClientBuilder {
         let http = match self.http_client {
             Some(client) => client,
             None => reqwest::Client::builder()
-                .timeout(DEFAULT_TIMEOUT)
+                .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
+                .read_timeout(DEFAULT_READ_TIMEOUT)
                 .user_agent(concat!("vpndetection-rust/", env!("CARGO_PKG_VERSION")))
                 // The download endpoint answers 302 to object storage and the
                 // dataset behind it runs to gigabytes, so the link is the answer
