@@ -67,7 +67,7 @@ pub use lookup::Lookup;
 // without a conversion.
 pub use generated::models::dataset_format_size::Format;
 pub use generated::models::download::Outcome as DownloadOutcome;
-pub use generated::models::licensed_dataset::{Redistribution, Standing};
+pub use generated::models::licensed_dataset::{LicenseType, Standing};
 pub use generated::models::licensed_version::SampleFormats as SampleFormat;
 pub use generated::models::{
     ClassDetail, DatasetChecksums, DatasetFormatSize, DatasetMetadata, DatasetMetadataColumn,

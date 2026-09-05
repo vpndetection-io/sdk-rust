@@ -13,12 +13,12 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
-use vpndetection::{DatasetChecksums, ErrorKind, Format, Redistribution, Standing};
+use vpndetection::{DatasetChecksums, ErrorKind, Format, LicenseType, Standing};
 use vpndetection_integration::{
     STAGING, client_for, max_rung, recorder::Fact, recorder::Recorder, skip_unless,
 };
 
-/// The max organization licenses cdn_ip for redistribution, and at ~10 KB it is
+/// The max organization licenses cdn_ip for license_type, and at ~10 KB it is
 /// the only dataset small enough to move in CI.
 const DATASET: &str = "cdn_ip_v1";
 const FORMAT: Format = Format::Csvgz;
@@ -56,7 +56,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
 
     let standings = [Standing::Expired, Standing::Licensed, Standing::Unlicensed];
     let rights =
-        [Redistribution::Evaluation, Redistribution::Internal, Redistribution::Redistribute];
+        [LicenseType::Evaluation, LicenseType::Internal, LicenseType::Redistribute];
     let mut ids = Vec::new();
     for dataset in &datasets {
         assert!(!dataset.base.is_empty(), "a licensed family carries no base");
@@ -67,7 +67,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
             dataset.base
         );
         assert!(
-            rights.contains(&dataset.redistribution),
+            rights.contains(&dataset.license_type),
             "{} has an undocumented right",
             dataset.base
         );

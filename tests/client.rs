@@ -236,7 +236,7 @@ async fn the_database_list_unwraps_a_family_and_its_versions() {
     let stub = Stub::start([(
         "/api/v1/database/list".to_owned(),
         Route::ok(
-            r#"{"datasets":[{"base":"vpn_ip","name":"VPN IP","redistribution":"internal","in_term":true,"standing":"licensed","versions":[{"id":"vpn_ip_extended_v1","version":1,"formats":[{"format":"mmdb","bytes":1234}],"sampleFormats":["csvgz"]}]}]}"#,
+            r#"{"datasets":[{"base":"vpn_ip","name":"VPN IP","license_type":"standard","in_term":true,"standing":"licensed","versions":[{"id":"vpn_ip_extended_v1","version":1,"formats":[{"format":"mmdb","bytes":1234}],"sampleFormats":["csvgz"]}]}]}"#,
         ),
     )])
     .await;
