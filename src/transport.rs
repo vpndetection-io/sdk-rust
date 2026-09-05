@@ -121,7 +121,10 @@ impl Transport {
         // Bearer only. The API also accepts X-Api-Key and ?apikey=, and the
         // generated client sends BOTH of those whenever a key is configured; a
         // key belongs in one header, not in a query string a proxy will log.
-        if let Some(key) = &self.api_key {
+        // An empty key is treated as no key: it is what an unset environment
+        // variable or CI secret interpolates to, and `Bearer ` with nothing
+        // behind it is never what anyone meant.
+        if let Some(key) = self.api_key.as_deref().filter(|k| !k.is_empty()) {
             request = request.header(AUTHORIZATION, format!("Bearer {key}"));
         }
         Ok(request.send().await?)
