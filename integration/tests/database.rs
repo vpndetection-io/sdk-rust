@@ -56,7 +56,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
 
     let standings = [Standing::Expired, Standing::Licensed, Standing::Unlicensed];
     let rights =
-        [LicenseType::Evaluation, LicenseType::Internal, LicenseType::Redistribute];
+        [LicenseType::Evaluation, LicenseType::Standard, LicenseType::Redistribute];
     let mut ids = Vec::new();
     for dataset in &datasets {
         assert!(!dataset.base.is_empty(), "a licensed family carries no base");
