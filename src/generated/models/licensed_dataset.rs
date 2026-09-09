@@ -19,42 +19,22 @@ pub struct LicensedDataset {
     pub base: String,
     #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "summary", skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    #[serde(rename = "summary")]
+    pub summary: String,
     /// What your license permits you to do with the data.
     #[serde(rename = "license_type")]
     pub license_type: LicenseType,
-    #[serde(
-        rename = "starts",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub starts: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
+    #[serde(rename = "starts", deserialize_with = "Option::deserialize")]
+    pub starts: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// A hard stop. Null when the license has no end date, which is the normal case for a rolling agreement, and when there is no license. A rolling license reports its turnover date in renews_at instead.
-    #[serde(
-        rename = "expires",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub expires: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
+    #[serde(rename = "expires", deserialize_with = "Option::deserialize")]
+    pub expires: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// When a rolling license next renews. Null when the license has no defined term, when expires sets a hard stop instead, and when there is no license.
-    #[serde(
-        rename = "renews_at",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub renews_at: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
+    #[serde(rename = "renews_at", deserialize_with = "Option::deserialize")]
+    pub renews_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// The last day notice of non-renewal can be given for the term ending at renews_at. Null whenever renews_at is, and when the agreement records no notice period.
-    #[serde(
-        rename = "notice_due_at",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub notice_due_at: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
+    #[serde(rename = "notice_due_at", deserialize_with = "Option::deserialize")]
+    pub notice_due_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// False when the license has lapsed; downloads are refused.
     #[serde(rename = "in_term")]
     pub in_term: bool,
@@ -71,7 +51,12 @@ impl LicensedDataset {
     pub fn new(
         base: String,
         name: String,
+        summary: String,
         license_type: LicenseType,
+        starts: Option<chrono::DateTime<chrono::FixedOffset>>,
+        expires: Option<chrono::DateTime<chrono::FixedOffset>>,
+        renews_at: Option<chrono::DateTime<chrono::FixedOffset>>,
+        notice_due_at: Option<chrono::DateTime<chrono::FixedOffset>>,
         in_term: bool,
         standing: Standing,
         versions: Vec<models::LicensedVersion>,
@@ -79,12 +64,12 @@ impl LicensedDataset {
         LicensedDataset {
             base,
             name,
-            summary: None,
+            summary,
             license_type,
-            starts: None,
-            expires: None,
-            renews_at: None,
-            notice_due_at: None,
+            starts,
+            expires,
+            renews_at,
+            notice_due_at,
             in_term,
             standing,
             versions,
