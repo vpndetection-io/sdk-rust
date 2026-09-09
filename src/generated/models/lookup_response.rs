@@ -32,13 +32,13 @@ pub struct LookupResponse {
     /// Whether the address belongs to a CDN. Starter and above.
     #[serde(rename = "is_cdn", skip_serializing_if = "Option::is_none")]
     pub is_cdn: Option<bool>,
-    /// Whether the address was seen in a residential proxy pool. Max only.
+    /// Whether the address was seen in a residential proxy pool. Scale and above.
     #[serde(rename = "is_resproxy", skip_serializing_if = "Option::is_none")]
     pub is_resproxy: Option<bool>,
-    /// Whether the address was seen in a datacenter proxy pool. Max only.
+    /// Whether the address was seen in a datacenter proxy pool. Scale and above.
     #[serde(rename = "is_dcproxy", skip_serializing_if = "Option::is_none")]
     pub is_dcproxy: Option<bool>,
-    /// Whether the address was seen in a mobile proxy pool. Max only.
+    /// Whether the address was seen in a mobile proxy pool. Scale and above.
     #[serde(rename = "is_mobproxy", skip_serializing_if = "Option::is_none")]
     pub is_mobproxy: Option<bool>,
     /// Detail for `is_vpn`. Empty when `is_vpn` is false. Starter and above.
