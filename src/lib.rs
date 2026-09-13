@@ -42,6 +42,7 @@
 //! # }
 //! ```
 
+mod account;
 mod bogon;
 mod bogons;
 mod client;
@@ -55,6 +56,7 @@ mod transport;
 // is what lets scripts/generate.sh drop their output in untouched.
 pub(crate) use generated::models;
 
+pub use account::{Account, AccountApikey, AccountPlan, AccountUsage};
 pub use bogon::is_bogon;
 pub use client::{BatchOptions, Client, ClientBuilder, DEFAULT_BASE_URL, LookupOptions};
 pub use database::DatabaseApi;

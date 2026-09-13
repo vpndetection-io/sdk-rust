@@ -5,6 +5,7 @@ use futures_util::StreamExt;
 use indexmap::IndexMap;
 use moka::future::Cache;
 
+use crate::account::Account;
 use crate::bogon::{bogon_lookup, is_bogon};
 use crate::database::DatabaseApi;
 use crate::error::Error;
@@ -89,6 +90,59 @@ impl Client {
             cache.insert(ip.to_owned(), lookup.clone()).await;
         }
         Ok(lookup)
+    }
+
+    /// Classifies the address this client is calling from.
+    ///
+    /// The same answer [`Client::lookup`] would give for that address, at the
+    /// same cost against your allowance. The address is the one our edge
+    /// observed, so a call made through a proxy or a VPN reports the exit it
+    /// left through - usually the point of asking.
+    ///
+    /// Deliberately NOT cached. The cache is keyed by address, and which
+    /// address this is IS the question: a machine that moves between networks
+    /// would otherwise be told where it used to be.
+    pub async fn my_ip(&self) -> Result<Lookup, Error> {
+        self.my_ip_with(LookupOptions::new()).await
+    }
+
+    /// [`Client::my_ip`], with this call's own retry budget.
+    pub async fn my_ip_with(&self, opts: LookupOptions) -> Result<Lookup, Error> {
+        let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
+            self.0.transport.get_json("/myip", &[])
+        })
+        .await?;
+        Ok(Lookup::served(answer))
+    }
+
+    /// What this client's key is entitled to, and how much of it has been used.
+    ///
+    /// Named for what it answers rather than `me`, which sits one letter from
+    /// [`Client::my_ip`] and means something quite different: one is which
+    /// address you are calling FROM, the other is which account you are calling
+    /// AS.
+    ///
+    /// Unlike a lookup there is no useful unauthenticated answer, so a client
+    /// built without an API key gets an unauthorized error rather than a
+    /// partial one.
+    ///
+    /// Usage counts against the ALLOWANCE WINDOW - the anniversary of the
+    /// subscription, not the calendar month and not the billing period - and it
+    /// is the same number a lookup is gated on. It can lag by a few seconds,
+    /// because requests are counted in memory and flushed in aggregate.
+    ///
+    /// Deliberately NOT cached: the whole point is what has been spent, and a
+    /// cached answer is a wrong one within seconds of the next request.
+    pub async fn my_account(&self) -> Result<Account, Error> {
+        self.my_account_with(LookupOptions::new()).await
+    }
+
+    /// [`Client::my_account`], with this call's own retry budget.
+    pub async fn my_account_with(&self, opts: LookupOptions) -> Result<Account, Error> {
+        with_retry(opts.retries.unwrap_or(self.0.retries), || {
+            self.0.transport.get_json("/api/v1/account/me", &[])
+        })
+        .await
     }
 
     /// Classifies many addresses concurrently.

@@ -6,9 +6,7 @@ mod support;
 use std::time::{Duration, Instant};
 
 use support::{Route, Stub};
-use vpndetection::{
-    BatchOptions, Client, DatabaseFormat, ErrorKind, LookupOptions, Standing,
-};
+use vpndetection::{BatchOptions, Client, DatabaseFormat, ErrorKind, LookupOptions, Standing};
 
 fn many_addrs() -> Vec<String> {
     (1..=12).map(|i| format!("9.9.9.{i}")).collect()
@@ -218,8 +216,11 @@ async fn checksums_returns_the_whole_digest_set_from_under_its_key() {
     .await;
     let client = stub.client().api_key("key").build().expect("build");
 
-    let sums =
-        client.database().checksums("vpn_ip_extended_v1", DatabaseFormat::Mmdb).await.expect("checksums");
+    let sums = client
+        .database()
+        .checksums("vpn_ip_extended_v1", DatabaseFormat::Mmdb)
+        .await
+        .expect("checksums");
 
     assert_eq!(sums.md5.as_str(), "m");
     assert_eq!(sums.sha1.as_str(), "s1");
@@ -295,4 +296,90 @@ async fn an_ipv6_address_survives_the_path_template() {
     let result = client.lookup("2606:4700:4700::1111").await.expect("lookup");
 
     assert_eq!(result.ip, "2606:4700:4700::1111");
+}
+
+const ACCOUNT_BODY: &str = r#"{
+  "org_id": "85bb51e4-2eb6-4a31-8e4d-02ba8b98fe61",
+  "apikey": {
+    "id": "0ab424cc-7619-4dad-b027-afacdc2cedb0",
+    "expires": null,
+    "allowed_cidrs": []
+  },
+  "plan": {"key": "max", "tier": "max"},
+  "usage": {
+    "requests": 580,
+    "quota": 5000000,
+    "hard_limit": null,
+    "window_start": "2026-09-04T07:00:00Z",
+    "window_end": "2026-10-04T07:00:00Z"
+  }
+}"#;
+
+#[tokio::test]
+async fn my_ip_classifies_the_calling_address() {
+    let stub =
+        Stub::start([("/myip".to_string(), Route::ok(r#"{"ip":"45.83.91.1","is_vpn":true}"#))])
+            .await;
+    let client = stub.client().build().expect("build");
+
+    let answer = client.my_ip().await.expect("my_ip");
+
+    assert_eq!(answer.ip, "45.83.91.1");
+    assert!(answer.is_vpn);
+}
+
+/// The cache is keyed by address, and which address this is IS the question.
+#[tokio::test]
+async fn my_ip_is_not_cached() {
+    let stub =
+        Stub::start([("/myip".to_string(), Route::ok(r#"{"ip":"45.83.91.1","is_vpn":true}"#))])
+            .await;
+    let client = stub.client().build().expect("build");
+
+    client.my_ip().await.expect("my_ip");
+    client.my_ip().await.expect("my_ip");
+
+    assert_eq!(stub.count(), 2);
+}
+
+#[tokio::test]
+async fn my_account_reports_the_plan_and_the_usage() {
+    let stub = Stub::start([("/api/v1/account/me".to_string(), Route::ok(ACCOUNT_BODY))]).await;
+    let client = stub.client().build().expect("build");
+
+    let account = client.my_account().await.expect("my_account");
+
+    assert_eq!(account.plan.key, "max");
+    assert_eq!(account.plan.tier, "max");
+    assert_eq!(account.usage.requests, 580);
+    assert_eq!(account.usage.quota, 5_000_000);
+    // None means NEVER stop, which is not the same as a limit of zero.
+    assert_eq!(account.usage.hard_limit, None);
+    assert!(account.apikey.allowed_cidrs.is_empty());
+    assert_eq!(account.apikey.expires, None);
+}
+
+/// The whole point is what has been spent.
+#[tokio::test]
+async fn my_account_is_not_cached() {
+    let stub = Stub::start([("/api/v1/account/me".to_string(), Route::ok(ACCOUNT_BODY))]).await;
+    let client = stub.client().build().expect("build");
+
+    client.my_account().await.expect("my_account");
+    client.my_account().await.expect("my_account");
+
+    assert_eq!(stub.count(), 2);
+}
+
+#[tokio::test]
+async fn my_account_surfaces_an_unauthorized_key() {
+    let stub = Stub::start([(
+        "/api/v1/account/me".to_string(),
+        Route::json(401, r#"{"error":"invalid API key"}"#),
+    )])
+    .await;
+    let client = stub.client().retries(0).build().expect("build");
+
+    let err = client.my_account().await.expect_err("expected an error");
+    assert_eq!(err.kind(), ErrorKind::Unauthorized);
 }
