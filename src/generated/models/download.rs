@@ -23,9 +23,9 @@ pub struct Download {
     /// The evaluation sample rather than the database itself.
     #[serde(rename = "sample")]
     pub sample: bool,
-    /// Object size at redirect time, NOT bytes delivered: the transfer is a presigned redirect straight to object storage, so we never observe it.
+    /// Object size at redirect time, NOT bytes delivered: the transfer is a presigned redirect straight to object storage, so we never observe it. int64 for the same reason as DatabaseFormatSize.bytes - it is the size of the same object.
     #[serde(rename = "bytes", deserialize_with = "Option::deserialize")]
-    pub bytes: Option<i32>,
+    pub bytes: Option<i64>,
     #[serde(rename = "http_status", deserialize_with = "Option::deserialize")]
     pub http_status: Option<i32>,
     /// The key that made the request. Null when the org acted through the console rather than through a key.
@@ -46,7 +46,7 @@ impl Download {
         format: String,
         outcome: Outcome,
         sample: bool,
-        bytes: Option<i32>,
+        bytes: Option<i64>,
         http_status: Option<i32>,
         apikey_id: Option<String>,
         client_ip: Option<String>,

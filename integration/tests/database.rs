@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
-use vpndetection::{DatasetChecksums, ErrorKind, Format, LicenseType, Standing};
+use vpndetection::{DatabaseFormat, DbChecksums, ErrorKind, LicenseType, Standing};
 use vpndetection_integration::{
     STAGING, client_for, max_rung, recorder::Fact, recorder::Recorder, skip_unless,
 };
@@ -21,12 +21,12 @@ use vpndetection_integration::{
 /// The max organization licenses cdn_ip for license_type, and at ~10 KB it is
 /// the only dataset small enough to move in CI.
 const DATASET: &str = "cdn_ip_v1";
-const FORMAT: Format = Format::Csvgz;
+const FORMAT: DatabaseFormat = DatabaseFormat::Csvgz;
 
 /// 8 MiB against a ~10 KB dataset. Three orders of magnitude of headroom, so
 /// tripping it means the suite is pointed somewhere unintended, which is exactly
 /// when a transfer must not go ahead.
-const CEILING: i32 = 8 << 20;
+const CEILING: i64 = 8 << 20;
 
 /// A real catalogue id the max organization holds no licence for.
 const UNLICENSED: &str = "hosting_ip_v1";
@@ -65,11 +65,22 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
             "{} has an undocumented standing",
             dataset.base
         );
-        assert!(
-            rights.contains(&dataset.license_type),
-            "{} has an undocumented right",
-            dataset.base
-        );
+        // `list` answers the WHOLE catalogue, so an unlicensed family is a normal
+        // row with no licence type at all. Asserting one either way is what
+        // tells a None apart from a variant this client does not know.
+        match (&dataset.standing, &dataset.license_type) {
+            (Standing::Unlicensed, right) => {
+                assert!(right.is_none(), "{} is unlicensed and carries a right", dataset.base)
+            }
+            (_, Some(right)) => assert!(
+                rights.contains(right),
+                "{} has an undocumented right",
+                dataset.base
+            ),
+            (standing, None) => {
+                panic!("{} is {standing:?} and carries no right", dataset.base)
+            }
+        }
         // The point of the family shape: a licence covers the family, and these
         // are the ids the download and checksum calls take. Before the spec was
         // corrected this list did not exist, so list() could not tell a caller
@@ -116,7 +127,7 @@ async fn download_streams_a_real_dataset_to_disk_intact() {
     assert!(!partial_of(&transfer.path).exists(), "the .part file outlived a successful transfer");
     assert_eq!(&body[..2], b"\x1f\x8b", "the payload is not gzip");
 
-    let published = transfer.checksums.sha256.as_deref().unwrap_or_default();
+    let published = transfer.checksums.sha256.as_str();
     assert_eq!(published.len(), 64, "sha256 {published:?} did not unwrap past the envelope");
     assert_eq!(digest(&body), published, "the transferred bytes hash to something else");
 
@@ -140,7 +151,7 @@ async fn download_bytes_agrees_with_the_streamed_copy() {
     assert_eq!(raw.len() as u64, transfer.written, "the in-memory copy is a different size");
     assert_eq!(
         digest(&raw),
-        transfer.checksums.sha256.as_deref().unwrap_or_default(),
+        transfer.checksums.sha256.as_str(),
         "the in-memory copy hashes to something the API does not publish"
     );
 }
@@ -148,7 +159,7 @@ async fn download_bytes_agrees_with_the_streamed_copy() {
 struct Transfer {
     written: u64,
     path: PathBuf,
-    checksums: DatasetChecksums,
+    checksums: DbChecksums,
     facts: Vec<Fact>,
 }
 
@@ -181,7 +192,7 @@ async fn transfer() -> Transfer {
     Transfer { written, path, checksums, facts: recorder.facts() }
 }
 
-fn published_size(meta: &vpndetection::DatasetMetadata) -> i32 {
+fn published_size(meta: &vpndetection::DatabaseMetadata) -> i64 {
     let sizes = meta.size.as_ref().expect("no size is published to check a transfer against");
     *sizes
         .get(&FORMAT.to_string())

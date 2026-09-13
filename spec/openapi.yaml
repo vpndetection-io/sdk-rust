@@ -852,8 +852,13 @@ components:
           $ref: '#/components/schemas/DatabaseFormat'
         bytes:
           type: integer
+          format: int64
           nullable: true
-          description: Size of the published file, or null when it has not been published yet
+          description: |
+            Size of the published file, or null when it has not been published
+            yet. int64 because it is not hypothetical: resproxy_ip_14d's MMDB is
+            4.58 GB, so a 32-bit field cannot carry the catalogue and `list`
+            throws for every caller rather than for that one entry.
       required:
         - format
         - bytes
@@ -984,10 +989,13 @@ components:
           description: The evaluation sample rather than the database itself.
         bytes:
           type: integer
+          format: int64
           nullable: true
           description: |
             Object size at redirect time, NOT bytes delivered: the transfer is a
             presigned redirect straight to object storage, so we never observe it.
+            int64 for the same reason as DatabaseFormatSize.bytes - it is the
+            size of the same object.
         http_status:
           type: integer
           nullable: true
@@ -1078,11 +1086,13 @@ components:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: Bytes per format
         sample_size:
           type: object
           additionalProperties:
             type: integer
+            format: int64
           description: Bytes per format of the evaluation sample, where one is published
         sample_entries:
           type: integer

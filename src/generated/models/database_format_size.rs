@@ -15,13 +15,13 @@ use serde::{Deserialize, Serialize};
 pub struct DatabaseFormatSize {
     #[serde(rename = "format")]
     pub format: models::DatabaseFormat,
-    /// Size of the published file, or null when it has not been published yet
+    /// Size of the published file, or null when it has not been published yet. int64 because it is not hypothetical: resproxy_ip_14d's MMDB is 4.58 GB, so a 32-bit field cannot carry the catalogue and `list` throws for every caller rather than for that one entry.
     #[serde(rename = "bytes", deserialize_with = "Option::deserialize")]
-    pub bytes: Option<i32>,
+    pub bytes: Option<i64>,
 }
 
 impl DatabaseFormatSize {
-    pub fn new(format: models::DatabaseFormat, bytes: Option<i32>) -> DatabaseFormatSize {
+    pub fn new(format: models::DatabaseFormat, bytes: Option<i64>) -> DatabaseFormatSize {
         DatabaseFormatSize { format, bytes }
     }
 }
