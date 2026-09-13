@@ -2,12 +2,18 @@ use std::sync::Arc;
 
 /// Enough of an incoming request for a selector to work with, whatever
 /// framework it came from. An adapter supplies one of these per request.
+///
+/// Both closures are `Send + Sync` because an adapter holds this across the
+/// await inside [`Core::evaluate`](crate::middleware::Core::evaluate), and a
+/// tower `Service` future has to be `Send`. Without the bound the whole
+/// middleware fails to compile at the adapter, which is a confusing place to
+/// learn it.
 pub struct RequestView<'a> {
     /// A request header by name, case-insensitively; `None` when absent.
-    pub header: &'a dyn Fn(&str) -> Option<String>,
+    pub header: &'a (dyn Fn(&str) -> Option<String> + Send + Sync),
 
     /// The framework's own client-address accessor.
-    pub framework_ip: &'a dyn Fn() -> Option<String>,
+    pub framework_ip: &'a (dyn Fn() -> Option<String> + Send + Sync),
 }
 
 /// How the client address is decided.

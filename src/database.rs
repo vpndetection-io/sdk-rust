@@ -27,7 +27,7 @@ impl<'a> DatabaseApi<'a> {
     /// The dataset FAMILIES your organization is licensed to download.
     ///
     /// A licence covers a family while a download names one of its versions, so
-    /// the ids [`Database::download`] and [`Database::checksums`] take come from
+    /// the ids [`DatabaseApi::download`] and [`DatabaseApi::checksums`] take come from
     /// [`Database::versions`] rather than from the family itself.
     pub async fn list(&self) -> Result<Vec<Database>, Error> {
         let response: DatabaseList = self.get("/api/v1/database/list", &[]).await?;
@@ -118,7 +118,7 @@ impl<'a> DatabaseApi<'a> {
     /// **This holds the entire file in memory**, and the catalog spans five
     /// orders of magnitude, from `cdn_ip_v1` at 10 KB to `resproxy_ip_90d_v1` at
     /// 1.79 GB. Reach for it at the small end, where the bytes go straight into
-    /// a parser, and use [`Database::download`] for anything you have not
+    /// a parser, and use [`DatabaseApi::download`] for anything you have not
     /// measured.
     pub async fn download_bytes(&self, id: &str, format: Format) -> Result<Vec<u8>, Error> {
         let mut response = self.fetch_file(id, format).await?;

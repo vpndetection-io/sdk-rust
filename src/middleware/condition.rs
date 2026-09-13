@@ -82,7 +82,7 @@ pub enum Value {
     AnyOf(Vec<Value>),
     Bound(Bound),
     Nested(Condition),
-    /// Ignored, exactly like [`Value::Bool(false)`].
+    /// Ignored, exactly like a [`Value::Bool`] carrying false.
     Null,
 }
 
