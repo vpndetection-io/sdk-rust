@@ -6,7 +6,7 @@
 #![allow(unused, path_statements, clippy::no_effect)]
 
 use std::time::Duration;
-use vpndetection::{BatchOptions, Client, ErrorKind, DatabaseFormat};
+use vpndetection::{BatchOptions, Client, DatabaseFormat, ErrorKind};
 
 async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new()?;
@@ -71,8 +71,10 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     let families = client.database().list().await?;
     let url = client.database().download_url("vpn_ip_extended_v1", DatabaseFormat::Mmdb).await?;
     let raw = client.database().download_bytes("cdn_ip_v1", DatabaseFormat::Csvgz).await?;
-    let written =
-        client.database().download("vpn_ip_extended_v1", DatabaseFormat::Mmdb, "./vpn_ip.mmdb").await?;
+    let written = client
+        .database()
+        .download("vpn_ip_extended_v1", DatabaseFormat::Mmdb, "./vpn_ip.mmdb")
+        .await?;
 
     result.is_hosting.unwrap_or(false);
     result.is_hosting.is_none();

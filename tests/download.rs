@@ -10,7 +10,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use support::{Route, Stub};
-use vpndetection::{ErrorKind, DatabaseFormat};
+use vpndetection::{DatabaseFormat, ErrorKind};
 
 const DATASET: &str = "cdn_ip_v1";
 const KEY: &str = "test-api-key-never-real";
@@ -72,7 +72,8 @@ async fn download_bytes_agrees_with_the_streamed_copy() {
     let path = scratch.join("cdn_ip_v1.csv.gz");
 
     client.database().download(DATASET, DatabaseFormat::Csvgz, &path).await.expect("download");
-    let bytes = client.database().download_bytes(DATASET, DatabaseFormat::Csvgz).await.expect("bytes");
+    let bytes =
+        client.database().download_bytes(DATASET, DatabaseFormat::Csvgz).await.expect("bytes");
 
     assert_eq!(bytes, std::fs::read(&path).expect("reading the download back"));
 }

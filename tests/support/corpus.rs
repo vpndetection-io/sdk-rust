@@ -22,6 +22,7 @@ pub struct Corpus {
     pub errors: Vec<ErrorCase>,
     pub batch: Vec<BatchCase>,
     pub bogons: Bogons,
+    pub middleware: Middleware,
 }
 
 impl Corpus {
@@ -116,4 +117,37 @@ pub struct BatchExpect {
 pub struct Bogons {
     pub v4: Vec<String>,
     pub v6: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Middleware {
+    pub conditions: Vec<ConditionCase>,
+    #[serde(rename = "invalidConditions")]
+    pub invalid_conditions: Vec<InvalidConditionCase>,
+}
+
+#[derive(Deserialize)]
+pub struct ConditionCase {
+    pub name: String,
+    pub why: String,
+    #[serde(default)]
+    pub bogon: Option<String>,
+    #[serde(default)]
+    pub body: Option<Value>,
+    pub condition: Value,
+    pub expect: ConditionExpect,
+}
+
+#[derive(Deserialize)]
+pub struct ConditionExpect {
+    pub blocked: bool,
+    #[serde(default)]
+    pub missing: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct InvalidConditionCase {
+    pub name: String,
+    pub why: String,
+    pub condition: Value,
 }

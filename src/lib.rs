@@ -50,6 +50,7 @@ mod database;
 mod error;
 mod generated;
 mod lookup;
+pub mod middleware;
 mod transport;
 
 // The generated models refer to themselves as `crate::models`, so this binding
