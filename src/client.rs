@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use moka::future::Cache;
 
 use crate::bogon::{bogon_lookup, is_bogon};
-use crate::database::Database;
+use crate::database::DatabaseApi;
 use crate::error::Error;
 use crate::lookup::Lookup;
 use crate::models::LookupResponse;
@@ -144,8 +144,8 @@ impl Client {
 
     /// The licensed dataset downloads, for keys carrying the `db.download`
     /// scope.
-    pub fn database(&self) -> Database<'_> {
-        Database::new(self)
+    pub fn database(&self) -> DatabaseApi<'_> {
+        DatabaseApi::new(self)
     }
 
     pub(crate) fn transport(&self) -> &Transport {
@@ -222,7 +222,7 @@ impl ClientBuilder {
     /// redirects by default and its policy is a client-level setting with no
     /// per-request override, so a following client would chase the download
     /// endpoint's 302 into object storage instead of handing back the link.
-    /// [`Database::download_url`] refuses rather than downloading, but only
+    /// [`DatabaseApi::download_url`] refuses rather than downloading, but only
     /// after the request has been spent.
     pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http_client = Some(client);

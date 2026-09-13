@@ -57,19 +57,17 @@ pub(crate) use generated::models;
 
 pub use bogon::is_bogon;
 pub use client::{BatchOptions, Client, ClientBuilder, DEFAULT_BASE_URL, LookupOptions};
-pub use database::Database;
+pub use database::DatabaseApi;
 pub use error::{Error, ErrorKind};
 pub use lookup::Lookup;
 
 // The wire shapes, generated from the OpenAPI spec and re-exported so a consumer
-// never has to name a private module. Format is the dataset enum rather than a
-// second one beside it, so `dataset.formats[0].format == Format::Mmdb` compares
-// without a conversion.
-pub use generated::models::dataset_format_size::Format;
+// never has to name a private module. The format enum is named ONCE in the spec
+// now, so `database.formats[0].format == DatabaseFormat::Mmdb` and the sample
+// formats compare against the same type instead of a parallel one.
 pub use generated::models::download::Outcome as DownloadOutcome;
-pub use generated::models::licensed_dataset::{LicenseType, Standing};
-pub use generated::models::licensed_version::SampleFormats as SampleFormat;
+pub use generated::models::{DatabaseFormat, LicenseType, Standing};
 pub use generated::models::{
-    ClassDetail, DatasetChecksums, DatasetFormatSize, DatasetMetadata, DatasetMetadataColumn,
-    Download, LicensedDataset, LicensedVersion, LookupResponse, ProxyDetail, VpnDetail,
+    ClassDetail, Database, DatabaseFormatSize, DatabaseMetadata, DatabaseMetadataColumn,
+    DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, VpnDetail,
 };

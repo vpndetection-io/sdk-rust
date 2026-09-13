@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use support::{Route, Stub};
 use vpndetection::{
-    BatchOptions, Client, ErrorKind, Format, LookupOptions, SampleFormat, Standing,
+    BatchOptions, Client, DatabaseFormat, ErrorKind, LookupOptions, Standing,
 };
 
 fn many_addrs() -> Vec<String> {
@@ -171,7 +171,7 @@ async fn download_url_returns_the_redirect_rather_than_following_it() {
 
     let url = client
         .database()
-        .download_url("vpn_ip_extended_v1", Format::Mmdb)
+        .download_url("vpn_ip_extended_v1", DatabaseFormat::Mmdb)
         .await
         .expect("download_url");
 
@@ -197,7 +197,7 @@ async fn a_redirect_following_http_client_is_refused_not_obeyed() {
 
     let err = client
         .database()
-        .download_url("vpn_ip_extended_v1", Format::Mmdb)
+        .download_url("vpn_ip_extended_v1", DatabaseFormat::Mmdb)
         .await
         .expect_err("a followed redirect has no Location left to return");
 
@@ -219,12 +219,12 @@ async fn checksums_returns_the_whole_digest_set_from_under_its_key() {
     let client = stub.client().api_key("key").build().expect("build");
 
     let sums =
-        client.database().checksums("vpn_ip_extended_v1", Format::Mmdb).await.expect("checksums");
+        client.database().checksums("vpn_ip_extended_v1", DatabaseFormat::Mmdb).await.expect("checksums");
 
-    assert_eq!(sums.md5.as_deref(), Some("m"));
-    assert_eq!(sums.sha1.as_deref(), Some("s1"));
-    assert_eq!(sums.sha256.as_deref(), Some("s256"));
-    assert_eq!(sums.sha512.as_deref(), Some("s512"));
+    assert_eq!(sums.md5.as_str(), "m");
+    assert_eq!(sums.sha1.as_str(), "s1");
+    assert_eq!(sums.sha256.as_str(), "s256");
+    assert_eq!(sums.sha512.as_str(), "s512");
 }
 
 /// A licence is held against a FAMILY, and the ids a download takes are one
@@ -236,22 +236,22 @@ async fn the_database_list_unwraps_a_family_and_its_versions() {
     let stub = Stub::start([(
         "/api/v1/database/list".to_owned(),
         Route::ok(
-            r#"{"datasets":[{"base":"vpn_ip","name":"VPN IP","summary":"vpn_ip rows","starts":"2026-01-01T00:00:00.000Z","expires":null,"renews_at":null,"notice_due_at":null,"license_type":"standard","in_term":true,"standing":"licensed","versions":[{"id":"vpn_ip_extended_v1","version":1,"formats":[{"format":"mmdb","bytes":1234}],"sampleFormats":["csvgz"]}]}]}"#,
+            r#"{"databases":[{"base":"vpn_ip","name":"VPN IP","summary":"vpn_ip rows","starts":"2026-01-01T00:00:00.000Z","expires":null,"renews_at":null,"notice_due_at":null,"license_type":"standard","in_term":true,"standing":"licensed","versions":[{"id":"vpn_ip_extended_v1","version":1,"formats":[{"format":"mmdb","bytes":1234}],"sample_formats":["csvgz"]}]}]}"#,
         ),
     )])
     .await;
     let client = stub.client().api_key("key").build().expect("build");
 
-    let datasets = client.database().list().await.expect("list");
+    let databases = client.database().list().await.expect("list");
 
-    assert_eq!(datasets.len(), 1);
-    assert_eq!(datasets[0].base, "vpn_ip");
-    assert_eq!(datasets[0].standing, Standing::Licensed);
-    let version = &datasets[0].versions[0];
+    assert_eq!(databases.len(), 1);
+    assert_eq!(databases[0].base, "vpn_ip");
+    assert_eq!(databases[0].standing, Standing::Licensed);
+    let version = &databases[0].versions[0];
     assert_eq!(version.id, "vpn_ip_extended_v1", "the id a download takes lives on the VERSION");
     assert_eq!(version.version, 1);
-    assert_eq!(version.formats[0].format, Format::Mmdb);
-    assert_eq!(version.sample_formats.as_deref(), Some([SampleFormat::Csvgz].as_slice()));
+    assert_eq!(version.formats[0].format, DatabaseFormat::Mmdb);
+    assert_eq!(version.sample_formats.as_deref(), Some([DatabaseFormat::Csvgz].as_slice()));
 }
 
 /// A 404 from a bad dataset id is a CLIENT error. Letting it fall through to the

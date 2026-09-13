@@ -11,14 +11,22 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// DbChecksums : The published digests for one database file.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DownloadList {
-    #[serde(rename = "downloads")]
-    pub downloads: Vec<models::Download>,
+pub struct DbChecksums {
+    #[serde(rename = "md5")]
+    pub md5: String,
+    #[serde(rename = "sha1")]
+    pub sha1: String,
+    #[serde(rename = "sha256")]
+    pub sha256: String,
+    #[serde(rename = "sha512")]
+    pub sha512: String,
 }
 
-impl DownloadList {
-    pub fn new(downloads: Vec<models::Download>) -> DownloadList {
-        DownloadList { downloads }
+impl DbChecksums {
+    /// The published digests for one database file.
+    pub fn new(md5: String, sha1: String, sha256: String, sha512: String) -> DbChecksums {
+        DbChecksums { md5, sha1, sha256, sha512 }
     }
 }

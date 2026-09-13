@@ -12,13 +12,16 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DownloadList {
-    #[serde(rename = "downloads")]
-    pub downloads: Vec<models::Download>,
+pub struct DatabaseFormatSize {
+    #[serde(rename = "format")]
+    pub format: models::DatabaseFormat,
+    /// Size of the published file, or null when it has not been published yet
+    #[serde(rename = "bytes", deserialize_with = "Option::deserialize")]
+    pub bytes: Option<i32>,
 }
 
-impl DownloadList {
-    pub fn new(downloads: Vec<models::Download>) -> DownloadList {
-        DownloadList { downloads }
+impl DatabaseFormatSize {
+    pub fn new(format: models::DatabaseFormat, bytes: Option<i32>) -> DatabaseFormatSize {
+        DatabaseFormatSize { format, bytes }
     }
 }

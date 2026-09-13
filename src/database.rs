@@ -1,14 +1,13 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use tokio::io::AsyncWriteExt;
 
 use crate::client::{Client, with_retry};
 use crate::error::Error;
-use crate::models::dataset_format_size::Format;
+use crate::models::DatabaseFormat as Format;
 use crate::models::{
-    DatasetChecksums, DatasetChecksumsResponse, DatasetList, DatasetMetadata, Download,
-    DownloadList, LicensedDataset,
+    DbChecksums, DatabaseChecksumsResponse, DatabaseList, DatabaseMetadata, Download,
+    DownloadList, Database,
 };
 
 /// The licensed dataset downloads. Access is granted by contract rather than
@@ -16,11 +15,11 @@ use crate::models::{
 ///
 /// Reached through [`Client::database`].
 #[derive(Debug, Clone, Copy)]
-pub struct Database<'a> {
+pub struct DatabaseApi<'a> {
     client: &'a Client,
 }
 
-impl<'a> Database<'a> {
+impl<'a> DatabaseApi<'a> {
     pub(crate) fn new(client: &'a Client) -> Self {
         Self { client }
     }
@@ -29,17 +28,17 @@ impl<'a> Database<'a> {
     ///
     /// A licence covers a family while a download names one of its versions, so
     /// the ids [`Database::download`] and [`Database::checksums`] take come from
-    /// [`LicensedDataset::versions`] rather than from the family itself.
-    pub async fn list(&self) -> Result<Vec<LicensedDataset>, Error> {
-        let response: DatasetList = self.get("/api/v1/database/list", &[]).await?;
-        Ok(response.datasets)
+    /// [`Database::versions`] rather than from the family itself.
+    pub async fn list(&self) -> Result<Vec<Database>, Error> {
+        let response: DatabaseList = self.get("/api/v1/database/list", &[]).await?;
+        Ok(response.databases)
     }
 
     /// What is inside one dataset: schema, samples, row count and sizes.
     ///
     /// It carries `updated` and `entries` without downloading anything, so poll
     /// it to decide whether today's build is worth fetching.
-    pub async fn metadata(&self, id: &str) -> Result<DatasetMetadata, Error> {
+    pub async fn metadata(&self, id: &str) -> Result<DatabaseMetadata, Error> {
         self.get("/api/v1/database/metadata", &[("id", id)]).await
     }
 
@@ -49,8 +48,8 @@ impl<'a> Database<'a> {
     /// digests a dataset publishes is the API's choice. They nest under
     /// `checksums` in the response, and reading a top-level `sha256` is how the
     /// Node SDK shipped this broken in 1.0.x.
-    pub async fn checksums(&self, id: &str, format: Format) -> Result<DatasetChecksums, Error> {
-        let response: DatasetChecksumsResponse = self
+    pub async fn checksums(&self, id: &str, format: Format) -> Result<DbChecksums, Error> {
+        let response: DatabaseChecksumsResponse = self
             .get("/api/v1/database/checksum", &[("id", id), ("format", format.as_str())])
             .await?;
         Ok(*response.checksums)
@@ -199,8 +198,11 @@ fn assert_whole_transfer(declared: Option<u64>, written: u64) -> Result<(), Erro
     }
 }
 
-/// Not every dataset is built in every format: the `_provider` catalogs are keyed
+/// Not every database is built in every format: the `_provider` catalogs are keyed
 /// by provider id rather than by IP range, so no MMDB exists for them.
+///
+/// `Display` comes from the generated enum now that the spec names it, so only
+/// the borrowed `&'static str` a query string wants is hand-written here.
 impl Format {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -210,8 +212,3 @@ impl Format {
     }
 }
 
-impl fmt::Display for Format {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}

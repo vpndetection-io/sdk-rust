@@ -12,13 +12,21 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DownloadList {
-    #[serde(rename = "downloads")]
-    pub downloads: Vec<models::Download>,
+pub struct DatabaseChecksumsResponse {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "format")]
+    pub format: String,
+    #[serde(rename = "checksums")]
+    pub checksums: Box<models::DbChecksums>,
 }
 
-impl DownloadList {
-    pub fn new(downloads: Vec<models::Download>) -> DownloadList {
-        DownloadList { downloads }
+impl DatabaseChecksumsResponse {
+    pub fn new(
+        id: String,
+        format: String,
+        checksums: models::DbChecksums,
+    ) -> DatabaseChecksumsResponse {
+        DatabaseChecksumsResponse { id, format, checksums: Box::new(checksums) }
     }
 }

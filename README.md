@@ -143,22 +143,22 @@ match client.lookup("1.1.1.1").await {
 }
 ```
 
-`kind()` is one of `BadRequest`, `Unauthorized`, `Forbidden`, `RateLimited`, `QuotaExceeded`, `ServerError`, `Network` or `Io`, the last of which is a dataset transfer that could not be written or that ended early.
+`kind()` is one of `BadRequest`, `Unauthorized`, `Forbidden`, `RateLimited`, `QuotaExceeded`, `ServerError`, `Network` or `Io`, the last of which is a database transfer that could not be written or that ended early.
 
 Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not the same thing. A rate limit is when the API faces extreme traffic bursts and so retrying later works; but a spent quota needs your allowance raised or the window to roll over. The library retries rate limits for you, but not if your quota is exceeded.
 
 ### Database downloads
 
-If your key carries the `db.download` scope, the licensed datasets are available through `client.database()`. A licence covers a dataset FAMILY, so the id you download comes from one of its `versions`:
+If your key carries the `db.download` scope, the licensed databases are available through `client.database()`. A licence covers a database FAMILY, so the id you download comes from one of its `versions`:
 
 ```rust
 use vpndetection::Format;
 
 let families = client.database().list().await?;
 
-let url = client.database().download_url("vpn_ip_extended_v1", Format::Mmdb).await?;
-let raw = client.database().download_bytes("cdn_ip_v1", Format::Csvgz).await?;
-let written = client.database().download("vpn_ip_extended_v1", Format::Mmdb, "./vpn_ip.mmdb").await?;
+let url = client.database().download_url("vpn_ip_extended_v1", DatabaseFormat::Mmdb).await?;
+let raw = client.database().download_bytes("cdn_ip_v1", DatabaseFormat::Csvgz).await?;
+let written = client.database().download("vpn_ip_extended_v1", DatabaseFormat::Mmdb, "./vpn_ip.mmdb").await?;
 ```
 
 `download_url` hands back a time-limited link so you can run the transfer yourself. `download` streams to disk through a neighboring `.part` file, so nothing bigger than a chunk is ever held in memory and a transfer that dies half way leaves no truncated file. `download_bytes` holds the whole file in memory, and the catalog runs from `cdn_ip_v1` at 10 KB to `resproxy_ip_90d_v1` at 1.79 GB, so use `download` for anything you have not measured.

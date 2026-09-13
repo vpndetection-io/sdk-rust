@@ -42,10 +42,9 @@ MODELS="Error=ErrorEnvelope"
 # one of those is public API here. --model-name-mappings does NOT reach an inline
 # schema; only --inline-schema-name-mappings does, keyed by the generator's own
 # placeholder name rather than by the Rust name.
-NAMES="listDatabases_200_response=DatasetList"
+NAMES="listDatabases_200_response=DatabaseList"
 NAMES="${NAMES},listDownloads_200_response=DownloadList"
-NAMES="${NAMES},databaseChecksum_200_response=DatasetChecksumsResponse"
-NAMES="${NAMES},databaseChecksum_200_response_checksums=DatasetChecksums"
+NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 
 rm -rf .gen
 mkdir -p .gen
