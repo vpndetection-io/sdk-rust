@@ -72,11 +72,9 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
             (Standing::Unlicensed, right) => {
                 assert!(right.is_none(), "{} is unlicensed and carries a right", dataset.base)
             }
-            (_, Some(right)) => assert!(
-                rights.contains(right),
-                "{} has an undocumented right",
-                dataset.base
-            ),
+            (_, Some(right)) => {
+                assert!(rights.contains(right), "{} has an undocumented right", dataset.base)
+            }
             (standing, None) => {
                 panic!("{} is {standing:?} and carries no right", dataset.base)
             }
