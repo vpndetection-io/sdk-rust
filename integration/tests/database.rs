@@ -203,9 +203,9 @@ fn served_keys(recorder: &Arc<Recorder>, path: &str) -> BTreeSet<String> {
     let body = recorder
         .json_body(path)
         .unwrap_or_else(|| panic!("no JSON answer was captured for {path}"));
-    body["datasets"]
+    body["databases"]
         .as_array()
-        .expect("datasets is an array")
+        .expect("databases is an array")
         .iter()
         .filter_map(|dataset| dataset.as_object())
         .flat_map(|dataset| dataset.keys().cloned())
