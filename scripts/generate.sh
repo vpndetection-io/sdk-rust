@@ -46,6 +46,18 @@ NAMES="listDatabases_200_response=DatabaseList"
 NAMES="${NAMES},listDownloads_200_response=DownloadList"
 NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 
+# The models this crate actually re-exports, and the ones they reach.
+#
+# Generating EVERY model pulls in whatever else the joined spec happens to
+# carry: the account endpoints arrived with a `format: uuid` field, which the
+# generator emits as `uuid::Uuid` and this crate has no such dependency - a
+# build break from a spec change in a surface this SDK does not expose. Three
+# runtime deps is a property worth keeping in a published crate.
+MODELS="LookupResponse:VpnDetail:ClassDetail:ProxyDetail:LookupError:Error"
+MODELS="${MODELS}:Database:DatabaseVersion:DatabaseFormat:DatabaseFormatSize"
+MODELS="${MODELS}:DatabaseMetadata:DatabaseMetadataColumn:DbChecksums:Standing"
+MODELS="${MODELS}:Download:DatabaseList:DownloadList:DatabaseChecksumsResponse"
+
 rm -rf .gen
 mkdir -p .gen
 
@@ -56,7 +68,7 @@ docker run --rm \
     -i /spec/openapi.yaml \
     -g rust --library reqwest \
     -o /out \
-    --global-property models,supportingFiles,modelDocs=false,modelTests=false \
+    --global-property "models=${MODELS},supportingFiles,modelDocs=false,modelTests=false" \
     --model-name-mappings "$MODELS" \
     --inline-schema-name-mappings "$NAMES" \
     --additional-properties="$PROPS" \

@@ -21,9 +21,9 @@ pub struct Database {
     pub name: String,
     #[serde(rename = "summary")]
     pub summary: String,
-    /// What your license permits you to do with the data.
-    #[serde(rename = "license_type")]
-    pub license_type: models::LicenseType,
+    /// What a license permits you to do with the data. Null for a family you hold no license for, which is every one with standing `unlicensed`.
+    #[serde(rename = "license_type", deserialize_with = "Option::deserialize")]
+    pub license_type: Option<LicenseType>,
     #[serde(rename = "starts", deserialize_with = "Option::deserialize")]
     pub starts: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// A hard stop. Null when the license has no end date, which is the normal case for a rolling agreement, and when there is no license. A rolling license reports its turnover date in renews_at instead.
@@ -38,7 +38,6 @@ pub struct Database {
     /// False when the license has lapsed; downloads are refused.
     #[serde(rename = "in_term")]
     pub in_term: bool,
-    /// `licensed` is a live grant, `expired` one whose term has ended, and `unlicensed` a database published but never bought.
     #[serde(rename = "standing")]
     pub standing: models::Standing,
     /// Every published version of this family. The `id` here is what the download and checksum endpoints take.
@@ -52,7 +51,7 @@ impl Database {
         base: String,
         name: String,
         summary: String,
-        license_type: models::LicenseType,
+        license_type: Option<LicenseType>,
         starts: Option<chrono::DateTime<chrono::FixedOffset>>,
         expires: Option<chrono::DateTime<chrono::FixedOffset>>,
         renews_at: Option<chrono::DateTime<chrono::FixedOffset>>,
@@ -74,5 +73,21 @@ impl Database {
             standing,
             versions,
         }
+    }
+}
+/// What a license permits you to do with the data. Null for a family you hold no license for, which is every one with standing `unlicensed`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub enum LicenseType {
+    #[serde(rename = "evaluation")]
+    Evaluation,
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "redistribute")]
+    Redistribute,
+}
+
+impl Default for LicenseType {
+    fn default() -> LicenseType {
+        Self::Evaluation
     }
 }

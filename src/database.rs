@@ -6,8 +6,8 @@ use crate::client::{Client, with_retry};
 use crate::error::Error;
 use crate::models::DatabaseFormat as Format;
 use crate::models::{
-    DbChecksums, DatabaseChecksumsResponse, DatabaseList, DatabaseMetadata, Download,
-    DownloadList, Database,
+    Database, DatabaseChecksumsResponse, DatabaseList, DatabaseMetadata, DbChecksums, Download,
+    DownloadList,
 };
 
 /// The licensed dataset downloads. Access is granted by contract rather than
@@ -211,4 +211,3 @@ impl Format {
         }
     }
 }
-

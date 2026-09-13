@@ -66,8 +66,13 @@ pub use lookup::Lookup;
 // now, so `database.formats[0].format == DatabaseFormat::Mmdb` and the sample
 // formats compare against the same type instead of a parallel one.
 pub use generated::models::download::Outcome as DownloadOutcome;
-pub use generated::models::{DatabaseFormat, LicenseType, Standing};
 pub use generated::models::{
     ClassDetail, Database, DatabaseFormatSize, DatabaseMetadata, DatabaseMetadataColumn,
     DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, VpnDetail,
 };
+pub use generated::models::{DatabaseFormat, Standing};
+// `license_type` is a NULLABLE enum, and naming one in the spec makes
+// openapi-python-client emit three identical enums unioned together - so it
+// stays inline, and the generator hangs its type off the model's own module
+// rather than emitting a file for it.
+pub use generated::models::database::LicenseType;

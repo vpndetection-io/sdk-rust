@@ -11,8 +11,8 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// Standing : Where your license for a database family stands today.
-/// Where your license for a database family stands today.
+/// Standing : Where your license for a database family stands today. `licensed` is a live grant, `expired` one whose term has ended, and `unlicensed` a database published but never bought.
+/// Where your license for a database family stands today. `licensed` is a live grant, `expired` one whose term has ended, and `unlicensed` a database published but never bought.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum Standing {
     #[serde(rename = "expired")]
