@@ -53,6 +53,28 @@ Every setting has a default, and `Client::builder()` is where you change one:
 let client = Client::builder().api_key(key).concurrency(32).retries(4).build()?;
 ```
 
+### Your own address
+
+```rust
+let result = client.my_ip().await?;
+println!("{}", result.ip);   // the address we saw this call come from
+```
+
+Same answer `lookup` would give for that address, and the same cost against your allowance. It is deliberately not cached: which address you are is the whole question, and a machine that moves between networks would otherwise be told where it used to be.
+
+### Your plan and usage
+
+```rust
+let acct = client.my_account().await?;
+println!("{}", acct.plan.key);            // max
+println!("{}", acct.usage.requests);      // 580
+println!("{}", acct.usage.window_end);    // when the allowance resets
+```
+
+Usage counts against the anniversary of your subscription, not the calendar month and not the billing period, and it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
+
+`my_ip_with` and `my_account_with` take this call's own retry budget, the same as `lookup_with`.
+
 ### Batch lookup
 
 You can do batch lookups with a list, which parallelizes requests for you efficiently:
