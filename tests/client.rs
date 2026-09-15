@@ -345,7 +345,7 @@ async fn my_ip_is_not_cached() {
 #[tokio::test]
 async fn my_entitlement_reports_the_plan_and_the_usage() {
     let stub =
-        Stub::start([("/api/v1/entitlement/me".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
+        Stub::start([("/api/v1/entitlement".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
     let client = stub.client().build().expect("build");
 
     let ent = client.my_entitlement().await.expect("my_entitlement");
@@ -364,7 +364,7 @@ async fn my_entitlement_reports_the_plan_and_the_usage() {
 #[tokio::test]
 async fn my_entitlement_is_not_cached() {
     let stub =
-        Stub::start([("/api/v1/entitlement/me".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
+        Stub::start([("/api/v1/entitlement".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
     let client = stub.client().build().expect("build");
 
     client.my_entitlement().await.expect("my_entitlement");
@@ -376,7 +376,7 @@ async fn my_entitlement_is_not_cached() {
 #[tokio::test]
 async fn my_entitlement_surfaces_an_unauthorized_key() {
     let stub = Stub::start([(
-        "/api/v1/entitlement/me".to_string(),
+        "/api/v1/entitlement".to_string(),
         Route::json(401, r#"{"error":"invalid API key"}"#),
     )])
     .await;

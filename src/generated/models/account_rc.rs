@@ -12,13 +12,14 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
+pub struct AccountRc {
+    /// The outcome. `SUCCESS` on success; otherwise the reason.
     #[serde(rename = "rc")]
     pub rc: String,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl AccountRc {
+    pub fn new(rc: String) -> AccountRc {
+        AccountRc { rc }
     }
 }

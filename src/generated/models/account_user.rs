@@ -12,13 +12,17 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
-    #[serde(rename = "rc")]
-    pub rc: String,
+pub struct AccountUser {
+    #[serde(rename = "id")]
+    pub id: uuid::Uuid,
+    #[serde(rename = "fullname", skip_serializing_if = "Option::is_none")]
+    pub fullname: Option<String>,
+    #[serde(rename = "email", skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl AccountUser {
+    pub fn new(id: uuid::Uuid) -> AccountUser {
+        AccountUser { id, fullname: None, email: None }
     }
 }

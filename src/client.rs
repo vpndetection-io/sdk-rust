@@ -140,7 +140,7 @@ impl Client {
     /// [`Client::my_entitlement`], with this call's own retry budget.
     pub async fn my_entitlement_with(&self, opts: LookupOptions) -> Result<Entitlement, Error> {
         with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json("/api/v1/entitlement/me", &[])
+            self.0.transport.get_json("/api/v1/entitlement", &[])
         })
         .await
     }

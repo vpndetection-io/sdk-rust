@@ -12,13 +12,15 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
+pub struct ApikeyList {
     #[serde(rename = "rc")]
     pub rc: String,
+    #[serde(rename = "keys")]
+    pub keys: Vec<models::ApikeyDetail>,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl ApikeyList {
+    pub fn new(rc: String, keys: Vec<models::ApikeyDetail>) -> ApikeyList {
+        ApikeyList { rc, keys }
     }
 }

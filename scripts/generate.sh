@@ -35,7 +35,7 @@ PROPS="packageName=vpndetection,supportAsync=true,hideGenerationTimestamp=true"
 # The spec's `Error` schema is the database API's `{rc}` envelope. Left alone it
 # generates a model named Error, which is the name this crate's own failure type
 # holds, so the two would collide the moment both are re-exported.
-MODELS="Error=ErrorEnvelope"
+NAME_MAP="Error=ErrorEnvelope"
 
 # The four wrapper schemas are inline in the spec, so the generator names them
 # after the operation and status code (DatabaseChecksum200ResponseChecksums), and
@@ -46,17 +46,13 @@ NAMES="listDatabases_200_response=DatabaseList"
 NAMES="${NAMES},listDownloads_200_response=DownloadList"
 NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 
-# The models this crate actually re-exports, and the ones they reach.
+# EVERY model in the joined spec, not a hand-kept subset. A subset drifts: it
+# has to be edited every time the spec grows, and a schema it misses is not a
+# build error but a reference to a type nobody generated.
 #
-# Generating EVERY model pulls in whatever else the joined spec happens to
-# carry: the account endpoints arrived with a `format: uuid` field, which the
-# generator emits as `uuid::Uuid` and this crate has no such dependency - a
-# build break from a spec change in a surface this SDK does not expose. Three
-# runtime deps is a property worth keeping in a published crate.
-MODELS="LookupResponse:VpnDetail:ClassDetail:ProxyDetail:LookupError:Error"
-MODELS="${MODELS}:Database:DatabaseVersion:DatabaseFormat:DatabaseFormatSize"
-MODELS="${MODELS}:DatabaseMetadata:DatabaseMetadataColumn:DbChecksums:Standing"
-MODELS="${MODELS}:Download:DatabaseList:DownloadList:DatabaseChecksumsResponse"
+# The `format: uuid` fields this pulls in are why `uuid` is a dependency. The
+# idiomatic types in src/ still expose those ids as `String` - a caller passes
+# them through - so the crate's public surface does not require the dep.
 
 rm -rf .gen
 mkdir -p .gen
@@ -68,8 +64,8 @@ docker run --rm \
     -i /spec/openapi.yaml \
     -g rust --library reqwest \
     -o /out \
-    --global-property "models=${MODELS},supportingFiles,modelDocs=false,modelTests=false" \
-    --model-name-mappings "$MODELS" \
+    --global-property "models,supportingFiles,modelDocs=false,modelTests=false" \
+    --model-name-mappings "$NAME_MAP" \
     --inline-schema-name-mappings "$NAMES" \
     --additional-properties="$PROPS" \
     >/dev/null

@@ -12,13 +12,15 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
-    #[serde(rename = "rc")]
-    pub rc: String,
+pub struct OauthError {
+    #[serde(rename = "error")]
+    pub error: String,
+    #[serde(rename = "error_description", skip_serializing_if = "Option::is_none")]
+    pub error_description: Option<String>,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl OauthError {
+    pub fn new(error: String) -> OauthError {
+        OauthError { error, error_description: None }
     }
 }

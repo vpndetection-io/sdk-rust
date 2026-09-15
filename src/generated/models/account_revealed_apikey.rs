@@ -12,13 +12,16 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
+pub struct AccountRevealedApikey {
     #[serde(rename = "rc")]
     pub rc: String,
+    /// The secret.
+    #[serde(rename = "key")]
+    pub key: String,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl AccountRevealedApikey {
+    pub fn new(rc: String, key: String) -> AccountRevealedApikey {
+        AccountRevealedApikey { rc, key }
     }
 }

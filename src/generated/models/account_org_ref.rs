@@ -12,13 +12,13 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
-    #[serde(rename = "rc")]
-    pub rc: String,
+pub struct AccountOrgRef {
+    #[serde(rename = "id")]
+    pub id: uuid::Uuid,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl AccountOrgRef {
+    pub fn new(id: uuid::Uuid) -> AccountOrgRef {
+        AccountOrgRef { id }
     }
 }

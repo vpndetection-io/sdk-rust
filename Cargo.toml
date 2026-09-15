@@ -25,6 +25,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = { version = "3", default-features = false, features = ["macros", "std"] }
 thiserror = "2"
+# The generated wire models carry `format: uuid` fields, which the generator
+# emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
+# stays out of the crate's public surface.
+uuid = { version = "1", features = ["serde"] }
 tokio = { version = "1", features = ["fs", "io-util", "time"] }
 
 [dev-dependencies]

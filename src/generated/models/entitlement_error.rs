@@ -12,13 +12,13 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
-    #[serde(rename = "rc")]
-    pub rc: String,
+pub struct EntitlementError {
+    #[serde(rename = "error")]
+    pub error: String,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl EntitlementError {
+    pub fn new(error: String) -> EntitlementError {
+        EntitlementError { error }
     }
 }

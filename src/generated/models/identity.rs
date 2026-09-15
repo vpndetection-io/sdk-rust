@@ -12,13 +12,25 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorEnvelope {
+pub struct Identity {
     #[serde(rename = "rc")]
     pub rc: String,
+    #[serde(rename = "user")]
+    pub user: Box<models::AccountUser>,
+    #[serde(rename = "org")]
+    pub org: Box<models::AccountOrgRef>,
+    /// What this credential may do right now.
+    #[serde(rename = "scopes")]
+    pub scopes: Vec<String>,
 }
 
-impl ErrorEnvelope {
-    pub fn new(rc: String) -> ErrorEnvelope {
-        ErrorEnvelope { rc }
+impl Identity {
+    pub fn new(
+        rc: String,
+        user: models::AccountUser,
+        org: models::AccountOrgRef,
+        scopes: Vec<String>,
+    ) -> Identity {
+        Identity { rc, user: Box::new(user), org: Box::new(org), scopes }
     }
 }
