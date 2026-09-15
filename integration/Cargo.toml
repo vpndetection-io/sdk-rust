@@ -15,7 +15,7 @@ license = "MIT"
 description = "Exercises the PUBLISHED vpndetection crate against staging. Never published."
 
 [dependencies]
-vpndetection = "^4.0"
+vpndetection = "^5.0"
 
 # The recording reverse proxy needs the same pieces the library builds its own
 # client from, and sha2 is the digest the download half checks the transferred

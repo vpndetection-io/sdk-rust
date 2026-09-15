@@ -38,7 +38,7 @@ RUST_IMAGE="${RUST_IMAGE:-rust:1-slim}"
 # Mirrors the requirement in Cargo.toml, which is asserted against rather than
 # parsed: the range has to be evaluated before cargo is allowed to run at all,
 # and two lines kept in agreement beat a semver parser written in bash.
-REQUIREMENT='^4.0'
+REQUIREMENT='^5.0'
 RANGE_LOW='4.0.0'
 RANGE_HIGH='5.0.0'
 
