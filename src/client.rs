@@ -5,9 +5,9 @@ use futures_util::StreamExt;
 use indexmap::IndexMap;
 use moka::future::Cache;
 
-use crate::account::Account;
 use crate::bogon::{bogon_lookup, is_bogon};
 use crate::database::DatabaseApi;
+use crate::entitlement::Entitlement;
 use crate::error::Error;
 use crate::lookup::Lookup;
 use crate::models::LookupResponse;
@@ -119,8 +119,8 @@ impl Client {
     ///
     /// Named for what it answers rather than `me`, which sits one letter from
     /// [`Client::my_ip`] and means something quite different: one is which
-    /// address you are calling FROM, the other is which account you are calling
-    /// AS.
+    /// address you are calling FROM, the other is what the key you are calling
+    /// WITH may spend.
     ///
     /// Unlike a lookup there is no useful unauthenticated answer, so a client
     /// built without an API key gets an unauthorized error rather than a
@@ -133,14 +133,14 @@ impl Client {
     ///
     /// Deliberately NOT cached: the whole point is what has been spent, and a
     /// cached answer is a wrong one within seconds of the next request.
-    pub async fn my_account(&self) -> Result<Account, Error> {
-        self.my_account_with(LookupOptions::new()).await
+    pub async fn my_entitlement(&self) -> Result<Entitlement, Error> {
+        self.my_entitlement_with(LookupOptions::new()).await
     }
 
-    /// [`Client::my_account`], with this call's own retry budget.
-    pub async fn my_account_with(&self, opts: LookupOptions) -> Result<Account, Error> {
+    /// [`Client::my_entitlement`], with this call's own retry budget.
+    pub async fn my_entitlement_with(&self, opts: LookupOptions) -> Result<Entitlement, Error> {
         with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json("/api/v1/account/me", &[])
+            self.0.transport.get_json("/api/v1/entitlement/me", &[])
         })
         .await
     }

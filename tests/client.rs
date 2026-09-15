@@ -298,7 +298,7 @@ async fn an_ipv6_address_survives_the_path_template() {
     assert_eq!(result.ip, "2606:4700:4700::1111");
 }
 
-const ACCOUNT_BODY: &str = r#"{
+const ENTITLEMENT_BODY: &str = r#"{
   "org_id": "85bb51e4-2eb6-4a31-8e4d-02ba8b98fe61",
   "apikey": {
     "id": "0ab424cc-7619-4dad-b027-afacdc2cedb0",
@@ -343,43 +343,45 @@ async fn my_ip_is_not_cached() {
 }
 
 #[tokio::test]
-async fn my_account_reports_the_plan_and_the_usage() {
-    let stub = Stub::start([("/api/v1/account/me".to_string(), Route::ok(ACCOUNT_BODY))]).await;
+async fn my_entitlement_reports_the_plan_and_the_usage() {
+    let stub =
+        Stub::start([("/api/v1/entitlement/me".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
     let client = stub.client().build().expect("build");
 
-    let account = client.my_account().await.expect("my_account");
+    let ent = client.my_entitlement().await.expect("my_entitlement");
 
-    assert_eq!(account.plan.key, "max");
-    assert_eq!(account.plan.tier, "max");
-    assert_eq!(account.usage.requests, 580);
-    assert_eq!(account.usage.quota, 5_000_000);
+    assert_eq!(ent.plan.key, "max");
+    assert_eq!(ent.plan.tier, "max");
+    assert_eq!(ent.usage.requests, 580);
+    assert_eq!(ent.usage.quota, 5_000_000);
     // None means NEVER stop, which is not the same as a limit of zero.
-    assert_eq!(account.usage.hard_limit, None);
-    assert!(account.apikey.allowed_cidrs.is_empty());
-    assert_eq!(account.apikey.expires, None);
+    assert_eq!(ent.usage.hard_limit, None);
+    assert!(ent.apikey.allowed_cidrs.is_empty());
+    assert_eq!(ent.apikey.expires, None);
 }
 
 /// The whole point is what has been spent.
 #[tokio::test]
-async fn my_account_is_not_cached() {
-    let stub = Stub::start([("/api/v1/account/me".to_string(), Route::ok(ACCOUNT_BODY))]).await;
+async fn my_entitlement_is_not_cached() {
+    let stub =
+        Stub::start([("/api/v1/entitlement/me".to_string(), Route::ok(ENTITLEMENT_BODY))]).await;
     let client = stub.client().build().expect("build");
 
-    client.my_account().await.expect("my_account");
-    client.my_account().await.expect("my_account");
+    client.my_entitlement().await.expect("my_entitlement");
+    client.my_entitlement().await.expect("my_entitlement");
 
     assert_eq!(stub.count(), 2);
 }
 
 #[tokio::test]
-async fn my_account_surfaces_an_unauthorized_key() {
+async fn my_entitlement_surfaces_an_unauthorized_key() {
     let stub = Stub::start([(
-        "/api/v1/account/me".to_string(),
+        "/api/v1/entitlement/me".to_string(),
         Route::json(401, r#"{"error":"invalid API key"}"#),
     )])
     .await;
     let client = stub.client().retries(0).build().expect("build");
 
-    let err = client.my_account().await.expect_err("expected an error");
+    let err = client.my_entitlement().await.expect_err("expected an error");
     assert_eq!(err.kind(), ErrorKind::Unauthorized);
 }

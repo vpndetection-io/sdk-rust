@@ -65,7 +65,7 @@ Same answer `lookup` would give for that address, and the same cost against your
 ### Your plan and usage
 
 ```rust
-let acct = client.my_account().await?;
+let acct = client.my_entitlement().await?;
 println!("{}", acct.plan.key);            // max
 println!("{}", acct.usage.requests);      // 580
 println!("{}", acct.usage.window_end);    // when the allowance resets
@@ -73,7 +73,7 @@ println!("{}", acct.usage.window_end);    // when the allowance resets
 
 Usage counts against the anniversary of your subscription, not the calendar month and not the billing period, and it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
 
-`my_ip_with` and `my_account_with` take this call's own retry budget, the same as `lookup_with`.
+`my_ip_with` and `my_entitlement_with` take this call's own retry budget, the same as `lookup_with`.
 
 ### Batch lookup
 
