@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,9 +9,9 @@ use moka::future::Cache;
 use crate::bogon::{bogon_lookup, is_bogon};
 use crate::database::DatabaseApi;
 use crate::entitlement::Entitlement;
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::lookup::Lookup;
-use crate::models::LookupResponse;
+use crate::models::{BatchLookupRequest, BatchLookupResponse, LookupResponse};
 use crate::transport::{Transport, encode_path_segment};
 
 /// The production API. Override it with [`ClientBuilder::base_url`].
@@ -28,6 +29,9 @@ const DEFAULT_RETRIES: u32 = 2;
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(250);
+/// The most addresses `POST /batch` takes in one call; a larger batch is sent
+/// in chunks of this size.
+const BATCH_MAX: usize = 1000;
 
 /// A client for the VPNDetection API.
 ///
@@ -145,13 +149,18 @@ impl Client {
         .await
     }
 
-    /// Classifies many addresses concurrently.
+    /// Classifies many addresses in as few requests as possible.
     ///
-    /// The answers are keyed by address rather than positional, so duplicates in
-    /// the input collapse to a single request and the caller never has to line
-    /// two lists up. Keys are in the order the addresses were first seen. An
-    /// address that fails carries its error as its value, so one bad entry
-    /// cannot lose the rest of the answers.
+    /// Bogons are answered locally and cached answers are reused; everything
+    /// else goes to `POST /batch` in chunks of up to 1000 addresses, with at
+    /// most `concurrency` chunks in flight. The answers are keyed by address
+    /// rather than positional, so duplicates in the input collapse to a single
+    /// entry and the caller never has to line two lists up. Keys are in the
+    /// order the addresses were first seen. An address that fails carries its
+    /// error as its value, so one bad entry cannot lose the rest of the answers:
+    /// the API reports a per-entry failure with the status the single lookup
+    /// would have answered, and a chunk that fails as a whole marks every
+    /// address in it.
     pub async fn lookup_batch<I, S>(
         &self,
         ips: I,
@@ -162,31 +171,86 @@ impl Client {
         S: AsRef<str>,
     {
         let unique = dedupe(ips);
-        let lookup_opts = LookupOptions { retries: opts.retries };
+        let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
 
-        // buffer_unordered completes out of order, so the answers are gathered
-        // by INPUT index and only then assembled, which is what keeps the map
-        // insertion-ordered whatever order the network answers in.
-        let mut answers: Vec<Option<Result<Lookup, Error>>> =
-            (0..unique.len()).map(|_| None).collect();
+        let mut answers: HashMap<String, Result<Lookup, Error>> =
+            HashMap::with_capacity(unique.len());
+        let mut pending: Vec<String> = Vec::new();
+        for ip in &unique {
+            if is_bogon(ip) {
+                answers.insert(ip.clone(), Ok(bogon_lookup(ip)));
+                continue;
+            }
+            if let Some(cache) = &self.0.cache {
+                if let Some(hit) = cache.get(ip).await {
+                    answers.insert(ip.clone(), Ok(hit));
+                    continue;
+                }
+            }
+            pending.push(ip.clone());
+        }
+
+        // buffer_unordered completes out of order, so each chunk's answers are
+        // gathered as they land and the map is assembled in input order at the
+        // end, which is what keeps it insertion-ordered whatever order the
+        // network answers in.
+        let chunks: Vec<Vec<String>> = pending.chunks(BATCH_MAX).map(<[String]>::to_vec).collect();
         {
-            let mut stream = futures_util::stream::iter(unique.iter().enumerate())
-                .map(|(i, ip)| {
-                    let opts = lookup_opts.clone();
-                    async move { (i, self.lookup_with(ip, opts).await) }
-                })
+            let mut stream = futures_util::stream::iter(chunks)
+                .map(|chunk| async move { self.lookup_chunk(chunk, retries).await })
                 .buffer_unordered(concurrency);
-            while let Some((i, answer)) = stream.next().await {
-                answers[i] = Some(answer);
+            while let Some(chunk_answers) = stream.next().await {
+                answers.extend(chunk_answers);
             }
         }
 
         unique
             .into_iter()
-            .zip(answers)
-            .map(|(ip, answer)| (ip, answer.expect("every address is answered exactly once")))
+            .map(|ip| {
+                let answer = answers.remove(&ip).expect("every address is answered exactly once");
+                (ip, answer)
+            })
             .collect()
+    }
+
+    /// One `POST /batch`, mapped back onto the addresses it was asked about. A
+    /// chunk-level failure - the call refused, the transport failing, the
+    /// retries exhausted - becomes every address's error, exactly as it would
+    /// have been had each been looked up alone.
+    async fn lookup_chunk(
+        &self,
+        chunk: Vec<String>,
+        retries: u32,
+    ) -> Vec<(String, Result<Lookup, Error>)> {
+        let request = BatchLookupRequest { ips: chunk.clone() };
+        let answered: Result<BatchLookupResponse, Error> =
+            with_retry(retries, || self.0.transport.post_json("/batch", &request)).await;
+        let mut body = match answered {
+            Ok(body) => body,
+            Err(err) => return chunk.into_iter().map(|ip| (ip, Err(err.restated()))).collect(),
+        };
+        let mut out = Vec::with_capacity(chunk.len());
+        for ip in chunk {
+            let answer = if let Some(served) = body.results.remove(&ip) {
+                let lookup = Lookup::served(served);
+                if let Some(cache) = &self.0.cache {
+                    cache.insert(ip.clone(), lookup.clone()).await;
+                }
+                Ok(lookup)
+            } else if let Some(failed) = body.errors.remove(&ip) {
+                Err(Error::from_entry(u16::try_from(failed.status).unwrap_or(500), &failed.error))
+            } else {
+                Err(Error::Api {
+                    kind: ErrorKind::ServerError,
+                    message: format!("the batch answer did not include {ip}"),
+                    status: 200,
+                    retry_after: None,
+                })
+            };
+            out.push((ip, answer));
+        }
+        out
     }
 
     /// Whether an address is answered locally rather than served. Exposed here

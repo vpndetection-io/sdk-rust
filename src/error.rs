@@ -7,10 +7,9 @@ use serde::Deserialize;
 /// Match on [`Error::kind`] to branch, or ask [`Error::retryable`] whether
 /// retrying this exact request could succeed. The client already retries what
 /// is retryable, so an error that reaches you has usually run out of attempts.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum Error {
     /// The API answered, and said no.
-    #[error("vpndetection: {kind} (HTTP {status}): {message}")]
     Api {
         kind: ErrorKind,
         /// The API's own explanation.
@@ -23,20 +22,58 @@ pub enum Error {
 
     /// No response arrived: a refused connection, a timeout, a TLS failure, or
     /// a body that could not be decoded. All are worth another attempt.
-    #[error("vpndetection: network: {0}")]
-    Network(#[from] reqwest::Error),
+    Network(reqwest::Error),
 
     /// A dataset transfer failed on this side of the socket: the stream ended
     /// before the promised length (`UnexpectedEof`), the disk filled, or the
     /// destination could not be written. The inner
     /// [`std::io::ErrorKind`] is what tells those apart.
-    #[error("vpndetection: io: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
 
     /// The client was asked for something it cannot do, before any request was
     /// sent: an unusable base URL, or a cache sized at zero.
-    #[error("vpndetection: {0}")]
     Config(String),
+}
+
+// Written out rather than derived, because one shape needs a conditional: a
+// chunk-level failure restated per address (`Error::restated`) is API-shaped
+// but never had an HTTP status, and printing `(HTTP 0)` would be a lie.
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Api { kind, message, status: 0, .. } => {
+                write!(f, "vpndetection: {kind}: {message}")
+            }
+            Self::Api { kind, message, status, .. } => {
+                write!(f, "vpndetection: {kind} (HTTP {status}): {message}")
+            }
+            Self::Network(e) => write!(f, "vpndetection: network: {e}"),
+            Self::Io(e) => write!(f, "vpndetection: io: {e}"),
+            Self::Config(m) => write!(f, "vpndetection: {m}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Network(e) => Some(e),
+            Self::Io(e) => Some(e),
+            Self::Api { .. } | Self::Config(_) => None,
+        }
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Self::Network(e)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 /// Why a request failed.
@@ -119,7 +156,7 @@ impl Error {
     /// The HTTP status, or `None` when no response was received.
     pub fn status(&self) -> Option<u16> {
         match self {
-            Self::Api { status, .. } => Some(*status),
+            Self::Api { status, .. } if *status != 0 => Some(*status),
             _ => None,
         }
     }
@@ -136,6 +173,32 @@ impl Error {
         let message = envelope_message(body)
             .unwrap_or_else(|| format!("request failed with status {status}"));
         Self::Api { kind: kind_for_status(status, retry_after), message, status, retry_after }
+    }
+
+    /// A per-entry failure inside a successful batch: the status the single
+    /// lookup would have answered, and its message, with no headers at all - so
+    /// a 429 here is a spent allowance, which is the only kind the API puts in
+    /// an entry.
+    pub(crate) fn from_entry(status: u16, message: &str) -> Self {
+        Self::Api {
+            kind: kind_for_status(status, None),
+            message: message.to_owned(),
+            status,
+            retry_after: None,
+        }
+    }
+
+    /// The same failure again, for every address in a chunk that failed as a
+    /// whole. `reqwest::Error` and `std::io::Error` do not clone, so the
+    /// failure is restated as an API-shaped error with the same kind, message
+    /// and retry advice; a transport failure keeps `status()` at `None`.
+    pub(crate) fn restated(&self) -> Self {
+        Self::Api {
+            kind: self.kind(),
+            message: self.message(),
+            status: self.status().unwrap_or(0),
+            retry_after: self.retry_after(),
+        }
     }
 }
 

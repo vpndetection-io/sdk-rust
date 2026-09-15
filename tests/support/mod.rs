@@ -59,6 +59,8 @@ impl Route {
 pub struct Call {
     pub path: String,
     pub headers: Vec<(String, String)>,
+    /// The request body, empty for a GET.
+    pub body: String,
 }
 
 impl Call {
@@ -164,13 +166,18 @@ async fn serve(
         None => return Ok(()),
     };
     let path = call.path.clone();
+    let body = call.body.clone();
 
     let route = {
         let mut state = state.lock().unwrap();
         state.calls.push(call);
         state.in_flight += 1;
         state.peak = state.peak.max(state.in_flight);
-        state.routes.get(&path).cloned()
+        if path == "/batch" {
+            Some(batch_route(&state.routes, &body))
+        } else {
+            state.routes.get(&path).cloned()
+        }
     };
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
@@ -210,7 +217,57 @@ async fn read_request(socket: &mut TcpStream) -> std::io::Result<Option<Call>> {
         }
     }
     let path = target.split('?').next().unwrap_or(target);
-    Ok(Some(Call { path: percent_decode(path), headers }))
+    // A POST carries its body after the blank line, sized by Content-Length.
+    let length = headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = vec![0u8; length];
+    if length > 0 {
+        socket.read_exact(&mut body).await?;
+    }
+    Ok(Some(Call {
+        path: percent_decode(path),
+        headers,
+        body: String::from_utf8_lossy(&body).into_owned(),
+    }))
+}
+
+/// A POST /batch is answered the way the API answers one: every address the
+/// table knows is a result if its route is a 200 and an entry error otherwise,
+/// and an unknown address is the 400 the API gives a string that is not one.
+/// One call however many addresses, which is what the request counts measure.
+fn batch_route(routes: &HashMap<String, Route>, body: &str) -> Route {
+    let ips: Vec<String> = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| serde_json::from_value(value.get("ips")?.clone()).ok())
+        .unwrap_or_default();
+    let mut results = serde_json::Map::new();
+    let mut errors = serde_json::Map::new();
+    for ip in ips {
+        match routes.get(&format!("/{ip}")) {
+            None => {
+                errors.insert(
+                    ip,
+                    serde_json::json!({"status": 400, "error": "not a valid IP address"}),
+                );
+            }
+            Some(route) if route.status == 200 => {
+                let value: serde_json::Value =
+                    serde_json::from_str(&route.body).unwrap_or(serde_json::Value::Null);
+                results.insert(ip, value);
+            }
+            Some(route) => {
+                let message = serde_json::from_str::<serde_json::Value>(&route.body)
+                    .ok()
+                    .and_then(|value| value.get("error")?.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                errors.insert(ip, serde_json::json!({"status": route.status, "error": message}));
+            }
+        }
+    }
+    Route::ok(serde_json::json!({"results": results, "errors": errors}).to_string())
 }
 
 async fn write_response(socket: &mut TcpStream, route: &Route) -> std::io::Result<()> {

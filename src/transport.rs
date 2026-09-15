@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Error, ErrorKind, kind_for_status};
 
-/// Every request the crate makes. Six GET operations with no request bodies,
-/// which is what the whole API is.
+/// Every request the crate makes: six GET operations and the batch POST, which
+/// is the whole API.
 ///
 /// The generated client is not used for this: its `ResponseContent` carries no
 /// headers, so a 429's `Retry-After` is unreachable, and its `download_database`
@@ -31,20 +31,21 @@ impl Transport {
         query: &[(&str, &str)],
     ) -> Result<T, Error> {
         let response = self.send(path, query).await?;
-        let status = response.status().as_u16();
-        let retry_after = parse_retry_after(response.headers());
-        let body = response.text().await?;
-        if !(200..300).contains(&status) {
-            return Err(Error::from_response(status, retry_after, &body));
+        decode(response).await
+    }
+
+    /// A JSON POST, decoded into `T`. The one request with a body: the batch.
+    pub(crate) async fn post_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, Error> {
+        let url = format!("{}{}", self.base_url, path);
+        let mut request = self.http.post(url).json(body);
+        if let Some(key) = self.api_key.as_deref().filter(|k| !k.is_empty()) {
+            request = request.header(AUTHORIZATION, format!("Bearer {key}"));
         }
-        // A body that will not decode is a transport-level failure rather than
-        // the API saying no, so it is retryable like any other malformed read.
-        serde_json::from_str(&body).map_err(|e| Error::Api {
-            kind: ErrorKind::ServerError,
-            message: format!("could not decode the response: {e}"),
-            status,
-            retry_after: None,
-        })
+        decode(request.send().await?).await
     }
 
     /// The `Location` of a redirect the client must NOT follow.
@@ -129,6 +130,24 @@ impl Transport {
         }
         Ok(request.send().await?)
     }
+}
+
+/// The JSON body of a 2xx, or the failure a non-2xx describes.
+async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, Error> {
+    let status = response.status().as_u16();
+    let retry_after = parse_retry_after(response.headers());
+    let body = response.text().await?;
+    if !(200..300).contains(&status) {
+        return Err(Error::from_response(status, retry_after, &body));
+    }
+    // A body that will not decode is a transport-level failure rather than
+    // the API saying no, so it is retryable like any other malformed read.
+    serde_json::from_str(&body).map_err(|e| Error::Api {
+        kind: ErrorKind::ServerError,
+        message: format!("could not decode the response: {e}"),
+        status,
+        retry_after: None,
+    })
 }
 
 /// Percent-encodes an address for the `GET /{ip}` path template. An IPv6

@@ -104,6 +104,7 @@ pub struct BatchCase {
 
 #[derive(Deserialize)]
 pub struct BatchExpect {
+    #[serde(default)]
     pub keys: Vec<String>,
     #[serde(rename = "httpRequests")]
     pub http_requests: Option<usize>,
@@ -111,6 +112,10 @@ pub struct BatchExpect {
     pub bogon_keys: Vec<String>,
     #[serde(default, rename = "errorKeys")]
     pub error_keys: Vec<String>,
+    #[serde(default, rename = "keyCount")]
+    pub key_count: Option<usize>,
+    #[serde(default, rename = "errorKinds")]
+    pub error_kinds: std::collections::HashMap<String, String>,
 }
 
 #[derive(Deserialize)]

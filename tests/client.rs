@@ -8,8 +8,11 @@ use std::time::{Duration, Instant};
 use support::{Route, Stub};
 use vpndetection::{BatchOptions, Client, DatabaseFormat, ErrorKind, LookupOptions, Standing};
 
+/// Enough addresses for seven chunks of the batch endpoint's 1000, so a
+/// concurrency bound has something to bound: one request per chunk, and only
+/// the chunks overlap.
 fn many_addrs() -> Vec<String> {
-    (1..=12).map(|i| format!("9.9.9.{i}")).collect()
+    (0..6001).map(|i| format!("9.{}.{}.{}", 1 + i / 65536, (i / 256) % 256, i % 256)).collect()
 }
 
 fn many_routes() -> Vec<(String, Route)> {
@@ -26,7 +29,7 @@ async fn batch_concurrency_is_configurable_per_call() {
 
     client.lookup_batch(many_addrs(), BatchOptions::new().concurrency(3)).await;
 
-    assert_eq!(stub.count(), many_addrs().len());
+    assert_eq!(stub.count(), 7, "one request per chunk of 1000");
     assert!(
         stub.peak_in_flight() <= 3,
         "peak in flight was {}, want at most 3",

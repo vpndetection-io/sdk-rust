@@ -134,7 +134,8 @@ async fn one_bad_address_does_not_lose_the_rest_of_the_batch() {
 
     assert_eq!(got.keys().cloned().collect::<Vec<_>>(), case.expect.keys);
     for ip in &case.expect.error_keys {
-        assert!(got[ip].is_err(), "{ip} should carry its own error");
+        let err = got[ip].as_ref().expect_err(&format!("{ip} should carry its own error"));
+        assert_eq!(err.kind().as_str(), case.expect.error_kinds[ip], "{ip}");
     }
     let good = got["1.1.1.1"].as_ref().expect("the good address should still have answered");
     assert!(!good.is_vpn);
@@ -149,6 +150,53 @@ async fn a_cache_hit_issues_no_second_request() {
 
     for _ in 0..case.repeat.unwrap_or(1) {
         client.lookup_batch(&case.input, BatchOptions::new()).await;
+    }
+    assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"));
+}
+
+#[tokio::test]
+async fn a_large_batch_is_sent_in_chunks_of_a_thousand() {
+    let data = corpus::load();
+    let case = data.batch_case("chunks-of-one-thousand");
+    let addrs: Vec<&str> = case.input.iter().map(String::as_str).collect();
+    let stub = Stub::start(Stub::ok_routes(&addrs)).await;
+    let client = stub.client().no_cache().build().expect("build");
+
+    let got = client.lookup_batch(&case.input, BatchOptions::new()).await;
+
+    assert_eq!(got.len(), case.expect.key_count.expect("keyCount"));
+    assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"));
+    for ip in &case.input {
+        let answer = got[ip].as_ref().unwrap_or_else(|e| panic!("{ip}: {e}"));
+        assert_eq!(&answer.ip, ip, "{ip} should be answered for itself");
+    }
+}
+
+/// A per-entry failure carries no headers, so its 429 can only be a spent
+/// allowance, and a 500 is the server's; neither is retried per entry, because
+/// retries belong to the call and the call succeeded.
+#[tokio::test]
+async fn an_entry_error_is_classified_by_its_status() {
+    let data = corpus::load();
+    let case = data.batch_case("an-entry-error-is-classified-by-its-status");
+    let mut routes = Stub::ok_routes(&["1.1.1.1"]);
+    routes.push((
+        "/8.8.8.8".to_owned(),
+        Route::json(
+            429,
+            r#"{"error":"request allowance exceeded; raise or remove your overage limit"}"#,
+        ),
+    ));
+    routes.push(("/9.9.9.9".to_owned(), Route::json(500, r#"{"error":"lookup failed"}"#)));
+    let stub = Stub::start(routes).await;
+    let client = stub.client().retries(3).build().expect("build");
+
+    let got = client.lookup_batch(&case.input, BatchOptions::new()).await;
+
+    assert_eq!(got.keys().cloned().collect::<Vec<_>>(), case.expect.keys);
+    for (ip, kind) in &case.expect.error_kinds {
+        let err = got[ip].as_ref().expect_err(&format!("{ip} should carry its error"));
+        assert_eq!(err.kind().as_str(), kind, "{ip}");
     }
     assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"));
 }
