@@ -222,7 +222,7 @@ A denied sign-in fails with `OauthError::AccessDenied` and a code that ran out w
 `rustls` is the default, so the crate builds with no system libraries at all. If you would rather link the platform's TLS, or you already depend on `reqwest` with its own defaults and want one backend rather than two:
 
 ```toml
-vpndetection = { version = "1", default-features = false, features = ["native-tls"] }
+vpndetection = { version = "5", default-features = false, features = ["native-tls"] }
 ```
 
 ### Calling from synchronous code
