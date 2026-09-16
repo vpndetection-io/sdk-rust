@@ -8,6 +8,7 @@
 mod support;
 
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use support::{Route, Stub, corpus};
@@ -232,6 +233,27 @@ async fn fails_open_on_a_lookup_error_and_closed_only_when_asked() {
     )
     .await;
     assert!(Req::from(PUBLIC_IP).evaluate(&closed).await.expect("evaluate").blocked);
+}
+
+/// A request path cannot wait out a stalled lookup. The client the core builds
+/// has to carry the middleware's timeout, not the SDK's 30 second default.
+#[tokio::test]
+async fn a_stalled_lookup_is_cut_off_at_the_middleware_timeout() {
+    let stub = Stub::start_with_delay(
+        [answer(PUBLIC_IP, json!({"is_vpn": false}))],
+        Duration::from_secs(60),
+    )
+    .await;
+    let core =
+        Core::new(Options::new().base_url(&stub.base_url).timeout(Duration::from_millis(150)))
+            .expect("core");
+
+    let start = Instant::now();
+    let found = Req::from(PUBLIC_IP).evaluate(&core).await.expect("evaluate");
+
+    assert!(start.elapsed() < Duration::from_secs(5), "waited {:?}", start.elapsed());
+    assert!(found.error.is_some(), "a lookup that timed out must say so");
+    assert!(!found.blocked, "a timed out lookup fails open");
 }
 
 #[tokio::test]

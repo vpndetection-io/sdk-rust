@@ -8,6 +8,7 @@
 mod support;
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use support::{Route, Stub};
 use vpndetection::{DatabaseFormat, ErrorKind};
@@ -62,6 +63,36 @@ async fn the_object_storage_request_carries_no_credential() {
     for (name, value) in &storage.headers {
         assert!(!value.contains(KEY), "the API key reached object storage in {name}");
     }
+}
+
+/// The client timeout bounds asking for the link, never the transfer, which
+/// takes as long as the dataset does. Object storage here takes four times the
+/// client's timeout to start answering.
+#[tokio::test]
+async fn the_client_timeout_does_not_bound_the_transfer() {
+    let storage = Stub::start_with_delay(
+        [(STORAGE_PATH.to_owned(), Route::ok(payload()))],
+        Duration::from_millis(600),
+    )
+    .await;
+    let api = Stub::start([]).await;
+    let location = format!("{}{STORAGE_PATH}?X-Amz-Signature=presigned", storage.base_url);
+    api.route("/api/v1/database/download", Route::json(302, "").header("Location", &location));
+    let client = api
+        .client()
+        .api_key(KEY)
+        .retries(0)
+        .timeout(Duration::from_millis(150))
+        .build()
+        .expect("build");
+
+    let bytes = client
+        .database()
+        .download_bytes(DATASET, DatabaseFormat::Csvgz)
+        .await
+        .expect("a slow transfer is not a stalled one");
+
+    assert_eq!(bytes, payload().as_bytes());
 }
 
 #[tokio::test]

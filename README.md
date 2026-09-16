@@ -53,6 +53,14 @@ Every setting has a default, and `Client::builder()` is where you change one:
 let client = Client::builder().api_key(key).concurrency(32).retries(4).build()?;
 ```
 
+Each attempt at a request gives up after 30 seconds, and `timeout` changes that. A database download isn't bound by it, since a large one runs for minutes:
+
+```rust
+use std::time::Duration;
+
+let client = Client::builder().api_key(key).timeout(Duration::from_secs(5)).build()?;
+```
+
 ### Your own address
 
 ```rust
@@ -73,7 +81,7 @@ println!("{}", acct.usage.window_end);    // when the allowance resets
 
 Usage counts against the anniversary of your subscription, not the calendar month and not the billing period, and it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
 
-`my_ip_with` and `my_entitlement_with` take this call's own retry budget, the same as `lookup_with`.
+`my_ip_with` and `my_entitlement_with` take this call's own retry budget and timeout, the same as `lookup_with`.
 
 ### Batch lookup
 
@@ -96,11 +104,14 @@ for (ip, result) in &results {
 
 Results are keyed by address and in the order you first listed each one, so duplicates in your list collapse into a single entry and one address failing never loses the rest: it carries its error as its value, with the status the API would have given that address on its own.
 
-How many chunks are in flight at once, and how many times a failed chunk is retried, are configurable per call:
+There's no limit on how many addresses you pass. How many chunks are in flight at once, how many times a failed chunk is retried, and how long each attempt may take are configurable per call:
 
 ```rust
 let results = client
-    .lookup_batch(many_ips, BatchOptions::new().concurrency(4).retries(4))
+    .lookup_batch(
+        many_ips,
+        BatchOptions::new().concurrency(4).retries(4).timeout(Duration::from_secs(10)),
+    )
     .await;
 ```
 

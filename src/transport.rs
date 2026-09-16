@@ -25,12 +25,18 @@ impl Transport {
     }
 
     /// A JSON GET, decoded into `T`.
+    ///
+    /// `timeout` runs from connecting to the last byte of the body, which is
+    /// what reqwest's per-request timeout covers. It also takes precedence over
+    /// a total timeout on a caller-supplied client, so the bound is the SDK's
+    /// whichever client sends.
     pub(crate) async fn get_json<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(&str, &str)],
+        timeout: Duration,
     ) -> Result<T, Error> {
-        let response = self.send(path, query).await?;
+        let response = self.send(path, query, timeout).await?;
         decode(response).await
     }
 
@@ -39,9 +45,10 @@ impl Transport {
         &self,
         path: &str,
         body: &B,
+        timeout: Duration,
     ) -> Result<T, Error> {
         let url = format!("{}{}", self.base_url, path);
-        let mut request = self.http.post(url).json(body);
+        let mut request = self.http.post(url).json(body).timeout(timeout);
         if let Some(key) = self.api_key.as_deref().filter(|k| !k.is_empty()) {
             request = request.header(AUTHORIZATION, format!("Bearer {key}"));
         }
@@ -59,8 +66,9 @@ impl Transport {
         &self,
         path: &str,
         query: &[(&str, &str)],
+        timeout: Duration,
     ) -> Result<String, Error> {
-        let response = self.send(path, query).await?;
+        let response = self.send(path, query, timeout).await?;
         let status = response.status().as_u16();
         let retry_after = parse_retry_after(response.headers());
         let location = response
@@ -94,11 +102,14 @@ impl Transport {
     /// that authorizes itself.
     ///
     /// The body is handed back unread, so a dataset of any size is streamed by
-    /// the caller rather than buffered here. The API key is not merely omitted
-    /// from this request, the redirect is not followed at all: reqwest's
-    /// redirect policy is a CLIENT-level setting and some versions carry
-    /// request headers across a redirect, so issuing the second request by hand
-    /// is the only way the key provably does not travel to object storage.
+    /// the caller rather than buffered here. No timeout is set: a deadline would
+    /// decide how large a dataset can be fetched.
+    ///
+    /// The API key is not merely omitted from this request, the redirect is not
+    /// followed at all: reqwest's redirect policy is a CLIENT-level setting and
+    /// some versions carry request headers across a redirect, so issuing the
+    /// second request by hand is the only way the key provably does not travel
+    /// to object storage.
     pub(crate) async fn get_file(&self, url: &str) -> Result<reqwest::Response, Error> {
         let response = self.http.get(url).send().await?;
         let status = response.status().as_u16();
@@ -116,9 +127,14 @@ impl Transport {
         })
     }
 
-    async fn send(&self, path: &str, query: &[(&str, &str)]) -> Result<reqwest::Response, Error> {
+    async fn send(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<reqwest::Response, Error> {
         let url = format!("{}{}", self.base_url, path);
-        let mut request = self.http.get(url).query(query);
+        let mut request = self.http.get(url).query(query).timeout(timeout);
         // Bearer only. The API also accepts X-Api-Key and ?apikey=, and the
         // generated client sends BOTH of those whenever a key is configured; a
         // key belongs in one header, not in a query string a proxy will log.

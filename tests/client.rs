@@ -6,7 +6,17 @@ mod support;
 use std::time::{Duration, Instant};
 
 use support::{Route, Stub};
-use vpndetection::{BatchOptions, Client, DatabaseFormat, ErrorKind, LookupOptions, Standing};
+use vpndetection::{
+    BatchOptions, Client, DatabaseFormat, Error, ErrorKind, LookupOptions, Standing,
+};
+
+/// An origin that holds every request this long before answering, so only a
+/// timeout ends the wait, and how long a call took says WHICH timeout fired.
+const STALL: Duration = Duration::from_secs(60);
+/// Far above the per-call value, so a per-call timeout that was accepted and
+/// ignored shows up as a call that ran long.
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
+const CALL_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Enough addresses for seven chunks of the batch endpoint's 1000, so a
 /// concurrency bound has something to bound: one request per chunk, and only
@@ -60,6 +70,33 @@ async fn without_an_override_the_client_concurrency_still_applies() {
     assert!(stub.peak_in_flight() <= 2, "peak in flight was {}", stub.peak_in_flight());
 }
 
+/// Chunking is the SDK's job, so a batch has no size limit of its own: 2,500
+/// addresses are three requests of at most 1000, never a refusal and never a
+/// request per address.
+#[tokio::test]
+async fn a_batch_of_any_size_is_chunked_rather_than_refused() {
+    let addrs: Vec<String> = many_addrs().into_iter().take(2500).collect();
+    let stub =
+        Stub::start(Stub::ok_routes(&addrs.iter().map(String::as_str).collect::<Vec<_>>())).await;
+    let client = stub.client().no_cache().build().expect("build");
+
+    let got = client.lookup_batch(&addrs, BatchOptions::new()).await;
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 3, "2500 addresses are three chunks of up to 1000");
+    for call in &requests {
+        assert_eq!(call.path, "/batch");
+        let body: serde_json::Value = serde_json::from_str(&call.body).expect("a JSON body");
+        let sent = body["ips"].as_array().expect("an ips array").len();
+        assert!(sent <= 1000, "a chunk carried {sent} addresses");
+    }
+    assert_eq!(got.len(), 2500);
+    for ip in &addrs {
+        let answer = got[ip].as_ref().unwrap_or_else(|e| panic!("{ip}: {e}"));
+        assert_eq!(&answer.ip, ip, "{ip} should be answered for itself");
+    }
+}
+
 #[tokio::test]
 async fn retries_are_configurable_per_call() {
     let stub =
@@ -74,6 +111,78 @@ async fn retries_are_configurable_per_call() {
 
     // One initial attempt plus two retries, rather than the client's zero.
     assert_eq!(stub.count(), 3);
+}
+
+/// Every call that takes `LookupOptions` is held to it, because each one reads
+/// the option separately and a call that forgot would still compile.
+#[tokio::test]
+async fn a_per_call_timeout_below_the_clients_is_the_one_that_fires() {
+    let stub = Stub::start_with_delay(Stub::ok_routes(&["9.9.9.9"]), STALL).await;
+    let client =
+        stub.client().no_cache().retries(0).timeout(CLIENT_TIMEOUT).build().expect("build");
+    let opts = || LookupOptions::new().timeout(CALL_TIMEOUT);
+
+    for (call, (err, took)) in [
+        ("lookup_with", stalled(client.lookup_with("9.9.9.9", opts())).await),
+        ("my_ip_with", stalled(client.my_ip_with(opts())).await),
+        ("my_entitlement_with", stalled(client.my_entitlement_with(opts())).await),
+    ] {
+        assert!(
+            took < CLIENT_TIMEOUT / 2,
+            "{call} waited {took:?}: the call's timeout was ignored"
+        );
+        assert_timed_out(call, &err);
+    }
+}
+
+/// Per attempt at each chunk. A chunk that runs out of time marks every address
+/// in it, the same as any other chunk that fails as a whole.
+#[tokio::test]
+async fn a_per_call_timeout_bounds_each_chunk_of_a_batch() {
+    let stub = Stub::start_with_delay(Stub::ok_routes(&["1.1.1.1", "9.9.9.9"]), STALL).await;
+    let client =
+        stub.client().no_cache().retries(0).timeout(CLIENT_TIMEOUT).build().expect("build");
+
+    let start = Instant::now();
+    let got = client
+        .lookup_batch(["1.1.1.1", "9.9.9.9"], BatchOptions::new().timeout(CALL_TIMEOUT))
+        .await;
+
+    let took = start.elapsed();
+    assert!(took < CLIENT_TIMEOUT / 2, "the batch waited {took:?}: its timeout was ignored");
+    assert_eq!(got.len(), 2);
+    for (ip, answer) in &got {
+        assert_timed_out(ip, answer.as_ref().expect_err("a stalled chunk cannot have answered"));
+    }
+}
+
+/// The database calls take no per-call options, so the client's timeout is the
+/// one that has to reach them. Asking for a download link is one of them; the
+/// transfer that follows is not (`tests/download.rs`).
+#[tokio::test]
+async fn the_client_timeout_bounds_the_database_calls() {
+    let stub = Stub::start_with_delay(
+        [
+            ("/api/v1/database/list".to_owned(), Route::ok(r#"{"databases":[]}"#)),
+            ("/api/v1/database/download".to_owned(), Route::json(302, "")),
+        ],
+        STALL,
+    )
+    .await;
+    let client =
+        stub.client().api_key("key").retries(0).timeout(CALL_TIMEOUT).build().expect("build");
+    let database = client.database();
+
+    for (call, (err, took)) in [
+        ("list", stalled(database.list()).await),
+        ("download_url", stalled(database.download_url("cdn_ip_v1", DatabaseFormat::Csvgz)).await),
+    ] {
+        assert!(
+            took < CLIENT_TIMEOUT / 2,
+            "{call} waited {took:?}: the client timeout never fired"
+        );
+        assert_timed_out(call, &err);
+    }
 }
 
 /// A 429 with no Retry-After is a spent allowance, and retrying it is hammering
@@ -283,6 +392,7 @@ fn the_builder_rejects_unusable_options() {
     assert!(Client::builder().concurrency(0).build().is_err());
     assert!(Client::builder().cache(0, Duration::from_secs(60)).build().is_err());
     assert!(Client::builder().cache(10, Duration::ZERO).build().is_err());
+    assert!(Client::builder().timeout(Duration::ZERO).build().is_err());
     assert!(Client::builder().base_url("not a url").build().is_err());
     assert!(Client::builder().base_url("/relative").build().is_err());
 }
@@ -387,4 +497,20 @@ async fn my_entitlement_surfaces_an_unauthorized_key() {
 
     let err = client.my_entitlement().await.expect_err("expected an error");
     assert_eq!(err.kind(), ErrorKind::Unauthorized);
+}
+
+/// Awaits a call that must fail, and how long it took to.
+async fn stalled<T: std::fmt::Debug>(
+    call: impl Future<Output = Result<T, Error>>,
+) -> (Error, Duration) {
+    let start = Instant::now();
+    let err = call.await.expect_err("a stalled origin cannot have answered");
+    (err, start.elapsed())
+}
+
+/// A timeout is the crate's own retryable transport error, and says it timed out.
+fn assert_timed_out(call: &str, err: &Error) {
+    assert_eq!(err.kind(), ErrorKind::Network, "{call}: {err}");
+    assert!(err.retryable(), "{call}: a timeout is worth another attempt");
+    assert!(err.message().contains("timed out"), "{call}: {}", err.message());
 }

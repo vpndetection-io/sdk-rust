@@ -21,11 +21,11 @@ const DEFAULT_CACHE_CAPACITY: u64 = 10_000;
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_CONCURRENCY: usize = 8;
 const DEFAULT_RETRIES: u32 = 2;
-// Bounds how long we wait for CONNECT and for the next BYTE, never the whole
-// transfer. A total `.timeout()` also covers the response body, so it silently
-// caps how large a database this client can fetch: the same client fetches the
-// presigned link, and a dataset that legitimately takes longer than the
-// deadline aborts however healthy the link is. Datasets here reach gigabytes.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+// The CLIENT bounds how long we wait for CONNECT and for the next BYTE, never the
+// whole transfer: a total `.timeout()` on it would also cover a dataset's body, and
+// a download that legitimately takes longer aborts however healthy the link is.
+// The whole-request bound is set per API request instead (`DEFAULT_TIMEOUT`).
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(250);
@@ -51,6 +51,7 @@ struct Inner {
     cache: Option<Cache<String, Lookup>>,
     concurrency: usize,
     retries: u32,
+    timeout: Duration,
 }
 
 impl Client {
@@ -72,7 +73,7 @@ impl Client {
         self.lookup_with(ip, LookupOptions::new()).await
     }
 
-    /// [`Client::lookup`], with this call's own retry budget.
+    /// [`Client::lookup`], with this call's own retry budget and timeout.
     pub async fn lookup_with(&self, ip: &str, opts: LookupOptions) -> Result<Lookup, Error> {
         if is_bogon(ip) {
             return Ok(bogon_lookup(ip));
@@ -84,8 +85,9 @@ impl Client {
         }
 
         let path = format!("/{}", encode_path_segment(ip));
+        let timeout = opts.timeout.unwrap_or(self.0.timeout);
         let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json(&path, &[])
+            self.0.transport.get_json(&path, &[], timeout)
         })
         .await?;
 
@@ -110,10 +112,11 @@ impl Client {
         self.my_ip_with(LookupOptions::new()).await
     }
 
-    /// [`Client::my_ip`], with this call's own retry budget.
+    /// [`Client::my_ip`], with this call's own retry budget and timeout.
     pub async fn my_ip_with(&self, opts: LookupOptions) -> Result<Lookup, Error> {
+        let timeout = opts.timeout.unwrap_or(self.0.timeout);
         let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json("/myip", &[])
+            self.0.transport.get_json("/myip", &[], timeout)
         })
         .await?;
         Ok(Lookup::served(answer))
@@ -141,10 +144,11 @@ impl Client {
         self.my_entitlement_with(LookupOptions::new()).await
     }
 
-    /// [`Client::my_entitlement`], with this call's own retry budget.
+    /// [`Client::my_entitlement`], with this call's own retry budget and timeout.
     pub async fn my_entitlement_with(&self, opts: LookupOptions) -> Result<Entitlement, Error> {
+        let timeout = opts.timeout.unwrap_or(self.0.timeout);
         with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json("/api/v1/entitlement", &[])
+            self.0.transport.get_json("/api/v1/entitlement", &[], timeout)
         })
         .await
     }
@@ -173,6 +177,7 @@ impl Client {
         let unique = dedupe(ips);
         let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
+        let timeout = opts.timeout.unwrap_or(self.0.timeout);
 
         let mut answers: HashMap<String, Result<Lookup, Error>> =
             HashMap::with_capacity(unique.len());
@@ -198,7 +203,7 @@ impl Client {
         let chunks: Vec<Vec<String>> = pending.chunks(BATCH_MAX).map(<[String]>::to_vec).collect();
         {
             let mut stream = futures_util::stream::iter(chunks)
-                .map(|chunk| async move { self.lookup_chunk(chunk, retries).await })
+                .map(|chunk| async move { self.lookup_chunk(chunk, retries, timeout).await })
                 .buffer_unordered(concurrency);
             while let Some(chunk_answers) = stream.next().await {
                 answers.extend(chunk_answers);
@@ -222,10 +227,11 @@ impl Client {
         &self,
         chunk: Vec<String>,
         retries: u32,
+        timeout: Duration,
     ) -> Vec<(String, Result<Lookup, Error>)> {
         let request = BatchLookupRequest { ips: chunk.clone() };
         let answered: Result<BatchLookupResponse, Error> =
-            with_retry(retries, || self.0.transport.post_json("/batch", &request)).await;
+            with_retry(retries, || self.0.transport.post_json("/batch", &request, timeout)).await;
         let mut body = match answered {
             Ok(body) => body,
             Err(err) => return chunk.into_iter().map(|ip| (ip, Err(err.restated()))).collect(),
@@ -273,6 +279,10 @@ impl Client {
     pub(crate) fn retries(&self) -> u32 {
         self.0.retries
     }
+
+    pub(crate) fn timeout(&self) -> Duration {
+        self.0.timeout
+    }
 }
 
 /// Builds a [`Client`]. With nothing set it queries production on the free tier.
@@ -285,6 +295,7 @@ pub struct ClientBuilder {
     cache_off: bool,
     concurrency: Option<usize>,
     retries: Option<u32>,
+    timeout: Option<Duration>,
     http_client: Option<reqwest::Client>,
 }
 
@@ -333,8 +344,26 @@ impl ClientBuilder {
         self
     }
 
-    /// The HTTP client to send with, for a custom transport, proxy or timeout.
-    /// Without one the SDK builds a client with a 30 second timeout.
+    /// How long one attempt at an API request may take, from connecting to the
+    /// last byte of the answer. Default 30 seconds.
+    ///
+    /// Per ATTEMPT, so a call that is retried can take longer in total. A
+    /// dataset transfer is exempt: a download runs for as long as the file
+    /// takes, and only a connection that stops moving fails it. A request that
+    /// runs out of time is an [`Error::Network`], which is retryable.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// The HTTP client to send with, for a custom transport or proxy. Without
+    /// one the SDK builds a client that gives up on a connection after 10
+    /// seconds and on a read that stalls for 30.
+    ///
+    /// Each API request's deadline is still [`ClientBuilder::timeout`], which
+    /// takes precedence over a total timeout configured on this client. That
+    /// one does still apply to a dataset transfer, so leave it unset unless you
+    /// mean to cap how large a download can be.
     ///
     /// **Build it with [`reqwest::redirect::Policy::none`].** reqwest follows
     /// redirects by default and its policy is a client-level setting with no
@@ -366,6 +395,10 @@ impl ClientBuilder {
         if ttl.is_zero() {
             return Err(Error::Config("cache ttl must be positive".to_owned()));
         }
+        let timeout = self.timeout.unwrap_or(DEFAULT_TIMEOUT);
+        if timeout.is_zero() {
+            return Err(Error::Config("timeout must be positive".to_owned()));
+        }
 
         let http = match self.http_client {
             Some(client) => client,
@@ -390,14 +423,17 @@ impl ClientBuilder {
                 .then(|| Cache::builder().max_capacity(capacity).time_to_live(ttl).build()),
             concurrency,
             retries: self.retries.unwrap_or(DEFAULT_RETRIES),
+            timeout,
         })))
     }
 }
 
-/// One call's overrides for [`Client::lookup_with`].
+/// One call's overrides for [`Client::lookup_with`], [`Client::my_ip_with`] and
+/// [`Client::my_entitlement_with`].
 #[derive(Debug, Clone, Default)]
 pub struct LookupOptions {
     retries: Option<u32>,
+    timeout: Option<Duration>,
 }
 
 impl LookupOptions {
@@ -410,6 +446,12 @@ impl LookupOptions {
         self.retries = Some(n);
         self
     }
+
+    /// Overrides [`ClientBuilder::timeout`] for this call, still per attempt.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
 }
 
 /// One batch's overrides for [`Client::lookup_batch`].
@@ -420,6 +462,7 @@ impl LookupOptions {
 pub struct BatchOptions {
     retries: Option<u32>,
     concurrency: Option<usize>,
+    timeout: Option<Duration>,
 }
 
 impl BatchOptions {
@@ -437,6 +480,13 @@ impl BatchOptions {
     /// large batch does not need a second client to widen it.
     pub fn concurrency(mut self, n: usize) -> Self {
         self.concurrency = Some(n.max(1));
+        self
+    }
+
+    /// Overrides [`ClientBuilder::timeout`] for each attempt at each chunk of
+    /// this batch.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
         self
     }
 }

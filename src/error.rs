@@ -47,7 +47,7 @@ impl std::fmt::Display for Error {
             Self::Api { kind, message, status, .. } => {
                 write!(f, "vpndetection: {kind} (HTTP {status}): {message}")
             }
-            Self::Network(e) => write!(f, "vpndetection: network: {e}"),
+            Self::Network(_) => write!(f, "vpndetection: network: {}", self.message()),
             Self::Io(e) => write!(f, "vpndetection: io: {e}"),
             Self::Config(m) => write!(f, "vpndetection: {m}"),
         }
@@ -147,6 +147,9 @@ impl Error {
     pub fn message(&self) -> String {
         match self {
             Self::Api { message, .. } => message.clone(),
+            // reqwest names a timeout only in its source chain, which a batch
+            // entry restating this error does not keep.
+            Self::Network(e) if e.is_timeout() => format!("timed out: {e}"),
             Self::Network(e) => e.to_string(),
             Self::Io(e) => e.to_string(),
             Self::Config(m) => m.clone(),

@@ -76,7 +76,11 @@ impl<'a> DatabaseApi<'a> {
     pub async fn download_url(&self, id: &str, format: Format) -> Result<String, Error> {
         let query = [("id", id), ("format", format.as_str())];
         with_retry(self.client.retries(), || {
-            self.client.transport().get_redirect("/api/v1/database/download", &query)
+            self.client.transport().get_redirect(
+                "/api/v1/database/download",
+                &query,
+                self.client.timeout(),
+            )
         })
         .await
     }
@@ -147,7 +151,10 @@ impl<'a> DatabaseApi<'a> {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<T, Error> {
-        with_retry(self.client.retries(), || self.client.transport().get_json(path, query)).await
+        with_retry(self.client.retries(), || {
+            self.client.transport().get_json(path, query, self.client.timeout())
+        })
+        .await
     }
 }
 

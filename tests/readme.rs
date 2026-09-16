@@ -22,7 +22,8 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let key = std::env::var("VPNDETECTION_API_KEY")?;
-    let client = Client::builder().api_key(key).concurrency(32).retries(4).build()?;
+    let client = Client::builder().api_key(key.clone()).concurrency(32).retries(4).build()?;
+    let client = Client::builder().api_key(key).timeout(Duration::from_secs(5)).build()?;
 
     let results =
         client.lookup_batch(["45.83.91.1", "8.8.8.8", "1.1.1.1"], BatchOptions::new()).await;
@@ -33,8 +34,12 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let many_ips = vec!["1.1.1.1".to_owned()];
-    let results =
-        client.lookup_batch(many_ips, BatchOptions::new().concurrency(32).retries(4)).await;
+    let results = client
+        .lookup_batch(
+            many_ips,
+            BatchOptions::new().concurrency(4).retries(4).timeout(Duration::from_secs(10)),
+        )
+        .await;
 
     let client = Client::new()?;
     let result = client.lookup("45.83.91.1").await?;

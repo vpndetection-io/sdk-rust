@@ -199,17 +199,11 @@ impl Core {
         let client = match options.client {
             Some(client) => client,
             None => {
-                // A TOTAL timeout, unlike the SDK's own client, which bounds
-                // CONNECT and the next byte so a multi-gigabyte dataset can
-                // still be fetched through it. Nothing here downloads a
-                // dataset, and what a request path needs bounded is the whole
-                // wait.
-                let http = reqwest::Client::builder()
-                    .timeout(options.timeout)
-                    .user_agent(concat!("vpndetection-rust/", env!("CARGO_PKG_VERSION")))
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()?;
-                let mut builder = Client::builder().retries(options.retries).http_client(http);
+                // Through the SDK's own option, not a reqwest client built with
+                // `.timeout()`: the SDK sets every API request's deadline itself,
+                // and a per-request deadline overrides the client's.
+                let mut builder =
+                    Client::builder().retries(options.retries).timeout(options.timeout);
                 if let Some(key) = options.api_key {
                     builder = builder.api_key(key);
                 }
