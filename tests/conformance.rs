@@ -154,21 +154,25 @@ async fn a_cache_hit_issues_no_second_request() {
     assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"));
 }
 
+/// Both the boundary and the absence of any cap: a batch of any size is chunks
+/// of 1000, never a refusal.
 #[tokio::test]
 async fn a_large_batch_is_sent_in_chunks_of_a_thousand() {
     let data = corpus::load();
-    let case = data.batch_case("chunks-of-one-thousand");
-    let addrs: Vec<&str> = case.input.iter().map(String::as_str).collect();
-    let stub = Stub::start(Stub::ok_routes(&addrs)).await;
-    let client = stub.client().no_cache().build().expect("build");
+    for name in ["chunks-of-one-thousand", "uncapped-input-is-chunked"] {
+        let case = data.batch_case(name);
+        let addrs: Vec<&str> = case.input.iter().map(String::as_str).collect();
+        let stub = Stub::start(Stub::ok_routes(&addrs)).await;
+        let client = stub.client().no_cache().build().expect("build");
 
-    let got = client.lookup_batch(&case.input, BatchOptions::new()).await;
+        let got = client.lookup_batch(&case.input, BatchOptions::new()).await;
 
-    assert_eq!(got.len(), case.expect.key_count.expect("keyCount"));
-    assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"));
-    for ip in &case.input {
-        let answer = got[ip].as_ref().unwrap_or_else(|e| panic!("{ip}: {e}"));
-        assert_eq!(&answer.ip, ip, "{ip} should be answered for itself");
+        assert_eq!(got.len(), case.expect.key_count.expect("keyCount"), "{name}");
+        assert_eq!(stub.count(), case.expect.http_requests.expect("httpRequests"), "{name}");
+        for ip in &case.input {
+            let answer = got[ip].as_ref().unwrap_or_else(|e| panic!("{name}: {ip}: {e}"));
+            assert_eq!(&answer.ip, ip, "{name}: {ip} should be answered for itself");
+        }
     }
 }
 

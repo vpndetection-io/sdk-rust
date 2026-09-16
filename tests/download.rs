@@ -217,6 +217,54 @@ async fn a_refused_download_link_names_object_storage() {
     assert!(err.message().contains("object storage"), "{}", err.message());
 }
 
+/// Only the header phase of a transfer retries. Object storage failing with a
+/// 5xx before any byte has moved is asked again, and nothing has been written.
+#[tokio::test]
+async fn an_object_storage_5xx_before_the_first_byte_is_retried() {
+    let stub = serving(Route::ok(payload())).await;
+    stub.sequence(STORAGE_PATH, [Route::json(503, ""), Route::ok(payload())]);
+    let client = stub.client().api_key(KEY).build().expect("build");
+    let scratch = Scratch::new("storage-503");
+    let path = scratch.join("cdn_ip_v1.csv.gz");
+
+    let written = client
+        .database()
+        .download(DATASET, DatabaseFormat::Csvgz, &path)
+        .await
+        .expect("a 503 before the transfer started is worth asking again");
+
+    assert_eq!(storage_requests(&stub), 2, "the 503 was not retried");
+    assert_eq!(written, payload().len() as u64);
+    assert_eq!(std::fs::read(&path).expect("reading the download back"), payload().as_bytes());
+}
+
+/// A body that dies part way is NEVER fetched again: a second copy would land
+/// behind the bytes already moved. Paired with the 503 test above, so neither
+/// count can pass by accident.
+#[tokio::test]
+async fn a_transfer_that_dies_part_way_is_never_fetched_again() {
+    for method in ["download", "download_bytes"] {
+        let short = Route::ok(payload()).promising(payload().len() as u64 * 4);
+        let stub = serving(short).await;
+        let client = stub.client().api_key(KEY).retries(3).build().expect("build");
+        let scratch = Scratch::new(&format!("died-{method}"));
+        let path = scratch.join("cdn_ip_v1.csv.gz");
+        let database = client.database();
+
+        let failed = match method {
+            "download" => database.download(DATASET, DatabaseFormat::Csvgz, &path).await.err(),
+            _ => database.download_bytes(DATASET, DatabaseFormat::Csvgz).await.err(),
+        };
+
+        assert!(failed.is_some(), "{method}: a short body must fail");
+        assert_eq!(storage_requests(&stub), 1, "{method}: the dead transfer was fetched again");
+    }
+}
+
+fn storage_requests(stub: &Stub) -> usize {
+    stub.calls().iter().filter(|path| path.as_str() == STORAGE_PATH).count()
+}
+
 /// The API answers 302 and the whole point of `download` is the SECOND request,
 /// so both must be on the record: one asking for the link, one taking the bytes.
 async fn serving(storage: Route) -> std::sync::Arc<Stub> {

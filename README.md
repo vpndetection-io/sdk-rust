@@ -185,7 +185,7 @@ Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not 
 If your key carries the `db.download` scope, the licensed databases are available through `client.database()`. A licence covers a database FAMILY, so the id you download comes from one of its `versions`:
 
 ```rust
-use vpndetection::Format;
+use vpndetection::DatabaseFormat;
 
 let families = client.database().list().await?;
 
@@ -195,6 +195,27 @@ let written = client.database().download("vpn_ip_extended_v1", DatabaseFormat::M
 ```
 
 `download_url` hands back a time-limited link so you can run the transfer yourself. `download` streams to disk through a neighboring `.part` file, so nothing bigger than a chunk is ever held in memory and a transfer that dies half way leaves no truncated file. `download_bytes` holds the whole file in memory, and the catalog runs from `cdn_ip_v1` at 10 KB to `resproxy_ip_90d_v1` at 1.79 GB, so use `download` for anything you have not measured.
+
+### Sign in with OAuth (device flow)
+
+A program running on the person's own machine can let them sign in with a browser and pick one of their API keys, instead of asking them to paste it:
+
+```rust
+use vpndetection::{Client, DeviceAuthorizationOptions};
+
+let client = Client::new()?;
+let scope = DeviceAuthorizationOptions::new().scope("account.read apikeys.read apikeys.reveal");
+let device = client.oauth().device_authorization_with("your-client-id", scope).await?;
+println!("Open {} and enter {}", device.verification_uri, device.user_code);
+
+let token = client.oauth().poll_device_token("your-client-id", &device).await?;
+let Some(apikey) = token.apikey else {
+    return Err("no API key came back: none was picked, or it cannot be shown again".into());
+};
+let keyed = Client::builder().api_key(apikey).build()?;
+```
+
+A denied sign-in fails with `OauthError::AccessDenied` and a code that ran out with `OauthError::ExpiredToken`. Client IDs are issued on request from support@vpndetection.io, and `client.oauth().revoke("your-client-id", &refresh_token)` signs the machine out again.
 
 ### TLS backends
 

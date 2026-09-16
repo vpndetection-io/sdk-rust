@@ -9,9 +9,9 @@
 // waiting for the transfer.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -19,6 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use vpndetection::{Client, ClientBuilder};
 
 pub mod corpus;
+pub mod oauth;
 
 /// A response the stub is prepared to give for one path.
 #[derive(Clone, Default)]
@@ -30,6 +31,12 @@ pub struct Route {
     /// follows a redirect it should not is told the file is enormous without the
     /// test having to produce one.
     pub promised_length: Option<u64>,
+    /// Writes the head and this many bytes of the body, then sends nothing more
+    /// until the client gives up, so only a deadline covering the BODY ends it.
+    pub stall_after: Option<usize>,
+    /// Writes the body a byte at a time at this pace, so no single read ever
+    /// stalls long enough for a per-read timeout to fire.
+    pub trickle: Option<Duration>,
 }
 
 impl Route {
@@ -50,17 +57,34 @@ impl Route {
         self.promised_length = Some(bytes);
         self
     }
+
+    pub fn stalling_after(mut self, bytes: usize) -> Self {
+        self.stall_after = Some(bytes);
+        self
+    }
+
+    pub fn trickling(mut self, pace: Duration) -> Self {
+        self.trickle = Some(pace);
+        self
+    }
 }
+
+/// Past this many requests the stub answers nothing at all, so a client caught
+/// in a loop fails its test's own time limit instead of growing without bound.
+pub const REQUEST_BOUND: usize = 64;
 
 /// One request the stub was asked for. The headers come along because two of
 /// the download guarantees are about what a request did NOT carry, and a header
 /// that was never sent is invisible to any assertion made on the response.
 #[derive(Clone, Debug)]
 pub struct Call {
+    pub method: String,
     pub path: String,
     pub headers: Vec<(String, String)>,
     /// The request body, empty for a GET.
     pub body: String,
+    /// When the request finished arriving, for measuring the gap between two.
+    pub at: Instant,
 }
 
 impl Call {
@@ -75,6 +99,7 @@ impl Call {
 #[derive(Default)]
 struct State {
     routes: HashMap<String, Route>,
+    sequences: HashMap<String, VecDeque<Route>>,
     calls: Vec<Call>,
     in_flight: usize,
     peak: usize,
@@ -135,6 +160,13 @@ impl Stub {
         self.state.lock().unwrap().routes.insert(path.into(), route);
     }
 
+    /// Answers a path with these responses in order, ahead of any route. Once
+    /// they run out every further request there is a 599, so an extra attempt
+    /// is counted and fails rather than picking up an answer meant for another.
+    pub fn sequence(&self, path: impl Into<String>, routes: impl IntoIterator<Item = Route>) {
+        self.state.lock().unwrap().sequences.insert(path.into(), routes.into_iter().collect());
+    }
+
     pub fn client(&self) -> ClientBuilder {
         Client::builder().base_url(&self.base_url)
     }
@@ -168,12 +200,21 @@ async fn serve(
     let path = call.path.clone();
     let body = call.body.clone();
 
-    let route = {
+    let over_bound = {
         let mut state = state.lock().unwrap();
         state.calls.push(call);
+        state.calls.len() > REQUEST_BOUND
+    };
+    if over_bound {
+        return hold(&mut socket).await;
+    }
+    let route = {
+        let mut state = state.lock().unwrap();
         state.in_flight += 1;
         state.peak = state.peak.max(state.in_flight);
-        if path == "/batch" {
+        if let Some(queue) = state.sequences.get_mut(&path) {
+            Some(queue.pop_front().unwrap_or_else(|| Route::json(599, r#"{"stub":"exhausted"}"#)))
+        } else if path == "/batch" {
             Some(batch_route(&state.routes, &body))
         } else {
             state.routes.get(&path).cloned()
@@ -206,7 +247,8 @@ async fn read_request(socket: &mut TcpStream) -> std::io::Result<Option<Call>> {
     }
     let text = String::from_utf8_lossy(&request);
     let mut lines = text.lines();
-    let Some(target) = lines.next().and_then(|line| line.split_whitespace().nth(1)) else {
+    let mut request_line = lines.next().unwrap_or_default().split_whitespace();
+    let (Some(method), Some(target)) = (request_line.next(), request_line.next()) else {
         return Ok(None);
     };
 
@@ -228,9 +270,11 @@ async fn read_request(socket: &mut TcpStream) -> std::io::Result<Option<Call>> {
         socket.read_exact(&mut body).await?;
     }
     Ok(Some(Call {
+        method: method.to_owned(),
         path: percent_decode(path),
         headers,
         body: String::from_utf8_lossy(&body).into_owned(),
+        at: Instant::now(),
     }))
 }
 
@@ -281,12 +325,32 @@ async fn write_response(socket: &mut TcpStream, route: &Route) -> std::io::Resul
     }
     head.push_str("\r\n");
     socket.write_all(head.as_bytes()).await?;
+    if let Some(bytes) = route.stall_after {
+        socket.write_all(&route.body.as_bytes()[..bytes]).await?;
+        socket.flush().await?;
+        return hold(socket).await;
+    }
+    if let Some(pace) = route.trickle {
+        for byte in route.body.as_bytes() {
+            socket.write_all(&[*byte]).await?;
+            socket.flush().await?;
+            tokio::time::sleep(pace).await;
+        }
+        return socket.shutdown().await;
+    }
     socket.write_all(route.body.as_bytes()).await?;
     socket.flush().await?;
     // A promised body that is never written would leave the client waiting for
     // the rest of it, so the connection is closed instead: whoever followed the
     // redirect gets an error, and the request is on the record either way.
     socket.shutdown().await
+}
+
+/// Sends nothing more, and returns once the client closes the connection.
+async fn hold(socket: &mut TcpStream) -> std::io::Result<()> {
+    let mut sink = [0u8; 256];
+    while socket.read(&mut sink).await? > 0 {}
+    Ok(())
 }
 
 fn percent_decode(path: &str) -> String {

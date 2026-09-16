@@ -12,6 +12,7 @@ use crate::entitlement::Entitlement;
 use crate::error::{Error, ErrorKind};
 use crate::lookup::Lookup;
 use crate::models::{BatchLookupRequest, BatchLookupResponse, LookupResponse};
+use crate::oauth::{OauthApi, OauthError};
 use crate::transport::{Transport, encode_path_segment};
 
 /// The production API. Override it with [`ClientBuilder::base_url`].
@@ -178,6 +179,10 @@ impl Client {
         let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
         let timeout = opts.timeout.unwrap_or(self.0.timeout);
+        if concurrency == 0 {
+            let refused = || Error::Config("concurrency must be at least 1".to_owned());
+            return unique.into_iter().map(|ip| (ip, Err(refused()))).collect();
+        }
 
         let mut answers: HashMap<String, Result<Lookup, Error>> =
             HashMap::with_capacity(unique.len());
@@ -270,6 +275,13 @@ impl Client {
     /// scope.
     pub fn database(&self) -> DatabaseApi<'_> {
         DatabaseApi::new(self)
+    }
+
+    /// Signing a person in with the OAuth device flow, so a program on their
+    /// own machine can be handed one of their API keys. These requests never
+    /// carry this client's API key, so a client built without one works.
+    pub fn oauth(&self) -> OauthApi<'_> {
+        OauthApi::new(self)
     }
 
     pub(crate) fn transport(&self) -> &Transport {
@@ -477,9 +489,10 @@ impl BatchOptions {
     }
 
     /// Overrides the client's in-flight request limit for this batch, so one
-    /// large batch does not need a second client to widen it.
+    /// large batch does not need a second client to widen it. Zero refuses the
+    /// whole batch as a bad request before any request is sent.
     pub fn concurrency(mut self, n: usize) -> Self {
-        self.concurrency = Some(n.max(1));
+        self.concurrency = Some(n);
         self
     }
 
@@ -494,10 +507,11 @@ impl BatchOptions {
 /// Backs off exponentially, except that a server-supplied `Retry-After` wins
 /// over the schedule. A 429 WITHOUT that header is a spent allowance rather than
 /// a throttle and is not retried at all, which [`Error::retryable`] decides.
-pub(crate) async fn with_retry<T, F, Fut>(retries: u32, mut attempt: F) -> Result<T, Error>
+pub(crate) async fn with_retry<T, E, F, Fut>(retries: u32, mut attempt: F) -> Result<T, E>
 where
+    E: Retry,
     F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, Error>>,
+    Fut: Future<Output = Result<T, E>>,
 {
     let mut delay = RETRY_BASE_DELAY;
     let mut remaining = retries;
@@ -511,6 +525,33 @@ where
                 remaining -= 1;
             }
         }
+    }
+}
+
+/// What [`with_retry`] asks of a failure, so the OAuth calls retry by the same
+/// rules without folding their refusals into [`Error`].
+pub(crate) trait Retry {
+    fn retryable(&self) -> bool;
+    fn retry_after(&self) -> Option<Duration>;
+}
+
+impl Retry for Error {
+    fn retryable(&self) -> bool {
+        Error::retryable(self)
+    }
+
+    fn retry_after(&self) -> Option<Duration> {
+        Error::retry_after(self)
+    }
+}
+
+impl Retry for OauthError {
+    fn retryable(&self) -> bool {
+        OauthError::retryable(self)
+    }
+
+    fn retry_after(&self) -> Option<Duration> {
+        OauthError::retry_after(self)
     }
 }
 

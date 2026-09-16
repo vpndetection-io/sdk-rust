@@ -51,7 +51,13 @@ mod error;
 mod generated;
 mod lookup;
 pub mod middleware;
+mod oauth;
 mod transport;
+
+// The OAuth unit tests reuse the integration suite's stub, which names this
+// crate from outside.
+#[cfg(test)]
+extern crate self as vpndetection;
 
 // The generated models refer to themselves as `crate::models`, so this binding
 // is what lets scripts/generate.sh drop their output in untouched.
@@ -63,6 +69,10 @@ pub use database::DatabaseApi;
 pub use entitlement::{Entitlement, EntitlementApikey, EntitlementPlan, EntitlementUsage};
 pub use error::{Error, ErrorKind};
 pub use lookup::Lookup;
+pub use oauth::{
+    DeviceAuthorization, DeviceAuthorizationOptions, OauthApi, OauthError, OauthErrorResponse,
+    OauthMetadata, OauthOptions, TokenResponse,
+};
 
 // The wire shapes, generated from the OpenAPI spec and re-exported so a consumer
 // never has to name a private module. The format enum is named ONCE in the spec

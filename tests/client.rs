@@ -17,6 +17,9 @@ const STALL: Duration = Duration::from_secs(60);
 /// ignored shows up as a call that ran long.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 const CALL_TIMEOUT: Duration = Duration::from_millis(150);
+/// Short enough to wait for, long above `CALL_TIMEOUT`, and far below the
+/// client's 30 second read timeout, so only the whole-attempt deadline fits.
+const BODY_CLIENT_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Enough addresses for seven chunks of the batch endpoint's 1000, so a
 /// concurrency bound has something to bound: one request per chunk, and only
@@ -68,6 +71,31 @@ async fn without_an_override_the_client_concurrency_still_applies() {
     client.lookup_batch(many_addrs(), BatchOptions::new()).await;
 
     assert!(stub.peak_in_flight() <= 2, "peak in flight was {}", stub.peak_in_flight());
+}
+
+/// Zero would leave nothing to run the chunks, so the whole batch is refused as a
+/// bad request, every address answered with that refusal, before any request.
+#[tokio::test]
+async fn a_per_call_concurrency_below_one_is_refused_before_any_request() {
+    let stub = Stub::start(Stub::ok_routes(&["1.1.1.1", "9.9.9.9"])).await;
+    let client = stub.client().no_cache().build().expect("build");
+
+    // Bounded: a limit of zero handed to the stream never polls a chunk at all,
+    // so without the refusal this call would wait forever.
+    let got = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.lookup_batch(["1.1.1.1", "10.0.0.1", "9.9.9.9"], BatchOptions::new().concurrency(0)),
+    )
+    .await
+    .expect("a batch at concurrency 0 never settled");
+
+    assert_eq!(stub.count(), 0, "a refused batch still sent a request");
+    assert_eq!(got.keys().collect::<Vec<_>>(), ["1.1.1.1", "10.0.0.1", "9.9.9.9"]);
+    for (ip, answer) in &got {
+        let err = answer.as_ref().expect_err("a refused batch answered an address");
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{ip}: {err}");
+        assert!(!err.retryable(), "{ip}: retrying cannot fix the option");
+    }
 }
 
 /// Chunking is the SDK's job, so a batch has no size limit of its own: 2,500
@@ -153,6 +181,43 @@ async fn a_per_call_timeout_bounds_each_chunk_of_a_batch() {
     assert_eq!(got.len(), 2);
     for (ip, answer) in &got {
         assert_timed_out(ip, answer.as_ref().expect_err("a stalled chunk cannot have answered"));
+    }
+}
+
+/// A deadline that stopped at the response head would never end a body stalled
+/// after it, nor one trickled a byte at a time so that no single read stalls.
+/// The call's own value fires first, then a call without one is held to the
+/// client's.
+#[tokio::test]
+async fn the_timeout_covers_a_body_that_stalls_or_trickles() {
+    let answer = format!(r#"{{"ip":"9.9.9.9","is_vpn":false,"pad":"{}"}}"#, "x".repeat(400));
+    for (shape, route) in [
+        ("stalled", Route::ok(answer.clone()).stalling_after(8)),
+        ("trickled", Route::ok(answer.clone()).trickling(Duration::from_millis(20))),
+    ] {
+        let stub = Stub::start([("/9.9.9.9".to_owned(), route)]).await;
+        let client = stub
+            .client()
+            .no_cache()
+            .retries(0)
+            .timeout(BODY_CLIENT_TIMEOUT)
+            .build()
+            .expect("build");
+
+        let opts = LookupOptions::new().timeout(CALL_TIMEOUT);
+        let (err, took) = stalled(client.lookup_with("9.9.9.9", opts)).await;
+        assert_timed_out(shape, &err);
+        assert!(
+            took >= CALL_TIMEOUT && took < BODY_CLIENT_TIMEOUT,
+            "{shape}: the call's timeout fired after {took:?}"
+        );
+
+        let (err, took) = stalled(client.lookup("9.9.9.9")).await;
+        assert_timed_out(shape, &err);
+        assert!(
+            took >= BODY_CLIENT_TIMEOUT && took < BODY_CLIENT_TIMEOUT * 3,
+            "{shape}: the client's timeout fired after {took:?}"
+        );
     }
 }
 

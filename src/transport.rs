@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Error, ErrorKind, kind_for_status};
 
-/// Every request the crate makes: six GET operations and the batch POST, which
-/// is the whole API.
+/// Every request the crate makes: the GET operations, the batch POST and the
+/// OAuth form POSTs.
 ///
 /// The generated client is not used for this: its `ResponseContent` carries no
 /// headers, so a 429's `Retry-After` is unreachable, and its `download_database`
@@ -127,6 +127,28 @@ impl Transport {
         })
     }
 
+    /// An OAuth GET. It never carries the API key: those endpoints have no use
+    /// for it, and handing a credential to a request that does not need one
+    /// only widens where it can leak.
+    pub(crate) async fn get_keyless(&self, path: &str, timeout: Duration) -> Result<Answer, Error> {
+        let url = format!("{}{}", self.base_url, path);
+        Answer::read(self.http.get(url).timeout(timeout).send().await?).await
+    }
+
+    /// An OAuth POST of an `application/x-www-form-urlencoded` body, which
+    /// never carries the API key either. On the token endpoint an
+    /// `Authorization` header would read as client authentication, which these
+    /// public clients do not have.
+    pub(crate) async fn post_form(
+        &self,
+        path: &str,
+        form: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<Answer, Error> {
+        let url = format!("{}{}", self.base_url, path);
+        Answer::read(self.http.post(url).form(form).timeout(timeout).send().await?).await
+    }
+
     async fn send(
         &self,
         path: &str,
@@ -145,6 +167,22 @@ impl Transport {
             request = request.header(AUTHORIZATION, format!("Bearer {key}"));
         }
         Ok(request.send().await?)
+    }
+}
+
+/// A response read whole, for a caller that classifies it itself. Reading the
+/// body inside the request's timeout is what makes that bound cover it.
+pub(crate) struct Answer {
+    pub(crate) status: u16,
+    pub(crate) retry_after: Option<Duration>,
+    pub(crate) body: String,
+}
+
+impl Answer {
+    async fn read(response: reqwest::Response) -> Result<Self, Error> {
+        let status = response.status().as_u16();
+        let retry_after = parse_retry_after(response.headers());
+        Ok(Self { status, retry_after, body: response.text().await? })
     }
 }
 
