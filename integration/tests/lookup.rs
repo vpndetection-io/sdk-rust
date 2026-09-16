@@ -155,11 +155,28 @@ async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
     let keys: Vec<&str> = answers.keys().map(String::as_str).collect();
     assert_eq!(keys, [PROBE, "8.8.8.8", "10.0.0.1"], "duplicates collapse, first-seen order holds");
 
-    // Distinct paths rather than a request count, so a retry against a wobbling
-    // staging cannot read as a failure to deduplicate.
-    let asked: BTreeSet<String> = recorder.facts().iter().map(|fact| fact.path.clone()).collect();
-    let want: BTreeSet<String> = [format!("/{PROBE}"), "/8.8.8.8".to_owned()].into();
-    assert_eq!(asked, want, "the batch asked for the wrong set of addresses");
+    // One route, POST /batch, and the addresses read off the bodies it carried
+    // rather than a request count, so a retry against a wobbling staging cannot
+    // read as a failure to deduplicate.
+    let facts = recorder.facts();
+    let routes: BTreeSet<(&str, &str)> =
+        facts.iter().map(|fact| (fact.method.as_str(), fact.path.as_str())).collect();
+    assert_eq!(
+        routes,
+        BTreeSet::from([("POST", "/batch")]),
+        "a batch is sent to POST /batch alone"
+    );
+    for fact in &facts {
+        let distinct: BTreeSet<&String> = fact.ips.iter().collect();
+        assert_eq!(distinct.len(), fact.ips.len(), "a chunk repeated an address: {:?}", fact.ips);
+    }
+    let sent: BTreeSet<&str> =
+        facts.iter().flat_map(|fact| fact.ips.iter().map(String::as_str)).collect();
+    assert_eq!(
+        sent,
+        BTreeSet::from([PROBE, "8.8.8.8"]),
+        "the batch sent the wrong set of addresses"
+    );
 
     let bogon = answers["10.0.0.1"].as_ref().expect("10.0.0.1 was not answered locally");
     assert!(bogon.is_bogon);

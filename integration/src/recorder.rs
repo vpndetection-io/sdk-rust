@@ -43,8 +43,12 @@ const MAX_CAPTURED_BODY: usize = 1 << 20;
 #[derive(Clone, Debug)]
 pub struct Fact {
     pub origin: String,
+    pub method: String,
     pub path: String,
     pub carried_key: bool,
+    /// The addresses a batch body carried, empty for every other request. They
+    /// are the suite's own input, so keeping them discloses nothing.
+    pub ips: Vec<String>,
 }
 
 pub struct Recorder {
@@ -110,7 +114,7 @@ impl Recorder {
     }
 
     async fn serve(&self, mut socket: TcpStream) -> std::io::Result<()> {
-        let Some(request) = read_head(&mut socket).await? else {
+        let Some(request) = read_request(&mut socket).await? else {
             return Ok(());
         };
         let url = self.target(&request.target);
@@ -131,15 +135,31 @@ impl Recorder {
             url.contains(key) || request.headers.iter().any(|(_, value)| value.contains(key))
         });
         let (origin, path) = split(url);
-        self.state.lock().unwrap().facts.push(Fact { origin, path, carried_key: carried });
+        let ips = serde_json::from_slice::<serde_json::Value>(&request.body)
+            .ok()
+            .and_then(|body| serde_json::from_value(body.get("ips")?.clone()).ok())
+            .unwrap_or_default();
+        let method = request.method.clone();
+        self.state.lock().unwrap().facts.push(Fact {
+            origin,
+            method,
+            path,
+            carried_key: carried,
+            ips,
+        });
     }
 
     async fn forward(&self, request: &Request, url: &str) -> Reply {
-        let mut outbound = self.http.get(url);
+        let method =
+            reqwest::Method::from_bytes(request.method.as_bytes()).unwrap_or(reqwest::Method::GET);
+        let mut outbound = self.http.request(method, url);
+        if !request.body.is_empty() {
+            outbound = outbound.body(request.body.clone());
+        }
         for (name, value) in &request.headers {
             // Everything the client sent goes on, except what belongs to THIS
             // hop: a forwarded Host would override the one the URL implies, and
-            // the framing headers describe a body this proxy is not relaying.
+            // the framing headers are reqwest's to write for the body it sends.
             if matches!(
                 name.as_str(),
                 "host" | "connection" | "content-length" | "transfer-encoding" | "accept-encoding"
@@ -206,8 +226,10 @@ impl Recorder {
 }
 
 struct Request {
+    method: String,
     target: String,
     headers: Vec<(String, String)>,
+    body: Vec<u8>,
 }
 
 struct Reply {
@@ -230,9 +252,9 @@ impl Reply {
     }
 }
 
-/// The request line and its headers. Only GETs reach here, so there is no body
-/// to read past the blank line.
-async fn read_head(socket: &mut TcpStream) -> std::io::Result<Option<Request>> {
+/// The request line, its headers and the body `Content-Length` sizes, which only
+/// a batch's POST carries.
+async fn read_request(socket: &mut TcpStream) -> std::io::Result<Option<Request>> {
     let mut raw = Vec::new();
     let mut byte = [0u8; 1];
     while !raw.ends_with(b"\r\n\r\n") {
@@ -249,7 +271,8 @@ async fn read_head(socket: &mut TcpStream) -> std::io::Result<Option<Request>> {
 
     let text = String::from_utf8_lossy(&raw);
     let mut lines = text.lines();
-    let Some(target) = lines.next().and_then(|line| line.split_whitespace().nth(1)) else {
+    let mut request_line = lines.next().unwrap_or_default().split_whitespace();
+    let (Some(method), Some(target)) = (request_line.next(), request_line.next()) else {
         return Ok(None);
     };
     let mut headers = Vec::new();
@@ -258,7 +281,17 @@ async fn read_head(socket: &mut TcpStream) -> std::io::Result<Option<Request>> {
             headers.push((name.trim().to_lowercase(), value.trim().to_owned()));
         }
     }
-    Ok(Some(Request { target: target.to_owned(), headers }))
+    let length = headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    if length > MAX_BODY {
+        return Ok(None);
+    }
+    let mut body = vec![0u8; length];
+    socket.read_exact(&mut body).await?;
+    Ok(Some(Request { method: method.to_owned(), target: target.to_owned(), headers, body }))
 }
 
 async fn write_reply(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
