@@ -1,5 +1,5 @@
 // The licensed-download half, which only the max key can reach: it is the tier
-// holding dataset licences, and db.download is a scope the other three keys do
+// holding dataset licenses, and db.download is a scope the other three keys do
 // not carry.
 //
 // The transfer is budgeted before it starts. Metadata publishes a size per
@@ -28,7 +28,7 @@ const FORMAT: DatabaseFormat = DatabaseFormat::Csvgz;
 /// when a transfer must not go ahead.
 const CEILING: i64 = 8 << 20;
 
-/// A real catalogue id the max organization holds no licence for.
+/// A real catalogue id the max organization holds no license for.
 const UNLICENSED: &str = "hosting_ip_v1";
 
 #[tokio::test]
@@ -66,7 +66,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
             dataset.base
         );
         // `list` answers the WHOLE catalogue, so an unlicensed family is a normal
-        // row with no licence type at all. Asserting one either way is what
+        // row with no license type at all. Asserting one either way is what
         // tells a None apart from a variant this client does not know.
         match (&dataset.standing, &dataset.license_type) {
             (Standing::Unlicensed, right) => {
@@ -79,7 +79,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
                 panic!("{} is {standing:?} and carries no right", dataset.base)
             }
         }
-        // The point of the family shape: a licence covers the family, and these
+        // The point of the family shape: a license covers the family, and these
         // are the ids the download and checksum calls take. Before the spec was
         // corrected this list did not exist, so list() could not tell a caller
         // what to download.
@@ -103,7 +103,7 @@ async fn a_dataset_the_organization_does_not_license_is_refused_cleanly() {
 
     assert_eq!(err.kind(), ErrorKind::Forbidden, "kind: {err}");
     assert_eq!(err.status(), Some(403));
-    assert!(!err.retryable(), "a licence refusal is not worth retrying");
+    assert!(!err.retryable(), "a license refusal is not worth retrying");
     // The API says which refusal this is (`{"rc":"NOT_LICENSED"}`). Falling back
     // to the status means the client never read the envelope.
     assert!(

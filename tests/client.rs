@@ -405,7 +405,7 @@ async fn checksums_returns_the_whole_digest_set_from_under_its_key() {
     assert_eq!(sums.sha512.as_str(), "s512");
 }
 
-/// A licence is held against a FAMILY, and the ids a download takes are one
+/// A license is held against a FAMILY, and the ids a download takes are one
 /// level further down still. The spec used to claim `{id, formats}` here, which
 /// decoded into a family whose every field was empty, so list -> download was
 /// broken in every SDK; the depth is pinned so it cannot silently go back.

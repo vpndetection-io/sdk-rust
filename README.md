@@ -182,7 +182,7 @@ Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not 
 
 ### Database downloads
 
-If your key carries the `db.download` scope, the licensed databases are available through `client.database()`. A licence covers a database FAMILY, so the id you download comes from one of its `versions`:
+If your key carries the `db.download` scope, the licensed databases are available through `client.database()`. A license covers a database FAMILY, so the id you download comes from one of its `versions`:
 
 ```rust
 use vpndetection::DatabaseFormat;

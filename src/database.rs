@@ -26,7 +26,7 @@ impl<'a> DatabaseApi<'a> {
 
     /// The dataset FAMILIES your organization is licensed to download.
     ///
-    /// A licence covers a family while a download names one of its versions, so
+    /// A license covers a family while a download names one of its versions, so
     /// the ids [`DatabaseApi::download`] and [`DatabaseApi::checksums`] take come from
     /// [`Database::versions`] rather than from the family itself.
     pub async fn list(&self) -> Result<Vec<Database>, Error> {

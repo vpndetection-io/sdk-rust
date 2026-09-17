@@ -173,7 +173,7 @@ async fn a_truncated_download_bytes_fails_rather_than_returning_a_short_buffer()
     assert!(err.retryable(), "a transfer that ended early is worth another attempt: {err}");
 }
 
-/// A licence refusal is a client error: it carries the API's own `rc`, it is not
+/// A license refusal is a client error: it carries the API's own `rc`, it is not
 /// retried, and it never reaches object storage at all.
 #[tokio::test]
 async fn a_dataset_the_organization_does_not_license_is_refused_once() {
@@ -194,7 +194,7 @@ async fn a_dataset_the_organization_does_not_license_is_refused_once() {
 
     assert_eq!(err.kind(), ErrorKind::Forbidden);
     assert_eq!(err.status(), Some(403));
-    assert!(!err.retryable(), "a licence refusal is not worth retrying");
+    assert!(!err.retryable(), "a license refusal is not worth retrying");
     assert_eq!(err.message(), "NOT_LICENSED", "the API's own reason went unread");
     assert_eq!(stub.count(), 1, "a 4xx must be issued exactly once");
     assert!(!path.exists() && !partial_of(&path).exists(), "a refusal wrote something to disk");
