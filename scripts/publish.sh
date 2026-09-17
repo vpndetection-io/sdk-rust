@@ -19,8 +19,7 @@ cd "$(dirname "$0")/.."
 
 RUST_IMAGE="${RUST_IMAGE:-rust:1-slim}"
 DRY_RUN="${DRY_RUN:-}"
-# The build settings scripts/cargo.sh uses: this shares its target volume, and
-# different ones would keep a second copy of every dependency in it.
+# The build settings scripts/cargo.sh uses, for the same reasons.
 CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
 
@@ -32,11 +31,10 @@ else
 fi
 
 # The working tree is mounted READ ONLY and copied inside, so cargo cannot leave
-# a root-owned target/ or Cargo.lock behind in it. The caches are docker volumes
-# for the same reason.
+# a root-owned target/ or Cargo.lock behind in it. Downloaded crates persist in a
+# docker volume; target/ stays inside the container and goes with it.
 docker run --rm \
     -v "$PWD:/src:ro" \
-    -v vpndetection-rust-target:/target \
     -v vpndetection-rust-cargo:/cargo \
     -e CARGO_TARGET_DIR=/target \
     -e CARGO_HOME=/cargo \

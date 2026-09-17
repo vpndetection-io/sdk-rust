@@ -217,12 +217,11 @@ function cargoRun() {
         cargo "$@"
         return 0
     fi
-    # Both caches live in named docker VOLUMES rather than in the working tree,
-    # so neither target/ nor a registry checkout can end up in a commit, and the
+    # Downloaded crates persist in a named docker VOLUME and target/ stays inside
+    # the container, so neither ends up in a commit or piles up on disk, and the
     # build settings are ../scripts/cargo.sh's.
     docker run --rm -i \
         -v "$PWD:/work" \
-        -v vpndetection-rust-integration-target:/target \
         -v vpndetection-rust-integration-cargo:/cargo \
         -e CARGO_TARGET_DIR=/target \
         -e CARGO_HOME=/cargo \
