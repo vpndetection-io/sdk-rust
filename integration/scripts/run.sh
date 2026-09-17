@@ -218,7 +218,8 @@ function cargoRun() {
         return 0
     fi
     # Both caches live in named docker VOLUMES rather than in the working tree,
-    # so neither target/ nor a registry checkout can end up in a commit.
+    # so neither target/ nor a registry checkout can end up in a commit, and the
+    # build settings are ../scripts/cargo.sh's.
     docker run --rm -i \
         -v "$PWD:/work" \
         -v vpndetection-rust-integration-target:/target \
@@ -226,6 +227,8 @@ function cargoRun() {
         -e CARGO_TARGET_DIR=/target \
         -e CARGO_HOME=/cargo \
         -e CARGO_TERM_COLOR=never \
+        -e CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}" \
+        -e CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}" \
         -e VPNDETECTION_STAGING_KEY_FREE -e VPNDETECTION_STAGING_KEY_STARTER \
         -e VPNDETECTION_STAGING_KEY_SCALE -e VPNDETECTION_STAGING_KEY_MAX \
         -w /work "$RUST_IMAGE" cargo "$@"

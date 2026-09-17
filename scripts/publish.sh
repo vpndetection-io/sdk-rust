@@ -19,6 +19,10 @@ cd "$(dirname "$0")/.."
 
 RUST_IMAGE="${RUST_IMAGE:-rust:1-slim}"
 DRY_RUN="${DRY_RUN:-}"
+# The build settings scripts/cargo.sh uses: this shares its target volume, and
+# different ones would keep a second copy of every dependency in it.
+CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
 
 if [ -z "$DRY_RUN" ] ; then
     : "${CARGO_REGISTRY_TOKEN:?set CARGO_REGISTRY_TOKEN to a crates.io token that can publish}"
@@ -37,6 +41,8 @@ docker run --rm \
     -e CARGO_TARGET_DIR=/target \
     -e CARGO_HOME=/cargo \
     -e CARGO_TERM_COLOR=never \
+    -e CARGO_INCREMENTAL="$CARGO_INCREMENTAL" \
+    -e CARGO_PROFILE_DEV_DEBUG="$CARGO_PROFILE_DEV_DEBUG" \
     -e CARGO_REGISTRY_TOKEN="${CARGO_REGISTRY_TOKEN:-}" \
     "$RUST_IMAGE" bash -euc "
         cp -R /src /tmp/build

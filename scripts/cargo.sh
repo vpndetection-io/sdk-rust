@@ -18,6 +18,12 @@ cd "$(dirname "$0")/.."
 RUST_IMAGE="${RUST_IMAGE:-rust:1-slim}"
 TARGET_VOLUME="${TARGET_VOLUME:-vpndetection-rust-target}"
 CARGO_VOLUME="${CARGO_VOLUME:-vpndetection-rust-cargo}"
+# Incremental data and full debug info were over half of target/ and buy nothing
+# for a crate this size: without them a build is no slower and a backtrace still
+# has file and line. publish.sh shares the target volume, so it uses the same
+# settings rather than keeping a second copy of every dependency.
+CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
 
 exec docker run --rm -i \
     -v "$PWD:/work" \
@@ -26,6 +32,8 @@ exec docker run --rm -i \
     -e CARGO_TARGET_DIR=/target \
     -e CARGO_HOME=/cargo \
     -e CARGO_TERM_COLOR=never \
+    -e CARGO_INCREMENTAL="$CARGO_INCREMENTAL" \
+    -e CARGO_PROFILE_DEV_DEBUG="$CARGO_PROFILE_DEV_DEBUG" \
     -e VPNDETECTION_LIVE="${VPNDETECTION_LIVE:-}" \
     -e VPNDETECTION_API_KEY="${VPNDETECTION_API_KEY:-}" \
     -w /work \
