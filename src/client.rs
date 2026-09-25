@@ -10,6 +10,7 @@ use crate::bogon::{bogon_lookup, is_bogon};
 use crate::database::DatabaseApi;
 use crate::entitlement::Entitlement;
 use crate::error::{Error, ErrorKind};
+use crate::flight::{Flights, restate};
 use crate::lookup::Lookup;
 use crate::models::{BatchLookupRequest, BatchLookupResponse, LookupResponse};
 use crate::oauth::{OauthApi, OauthError};
@@ -30,6 +31,12 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const RETRY_BASE_DELAY: Duration = Duration::from_millis(250);
+/// The longest `Retry-After` waited out as given, 2^31 - 1 ms. One past it reads
+/// like a header that will not parse, a throttle all the same, so the call waits
+/// its own backoff instead: a `Retry-After` of 2147484 held a call for 24.8 days,
+/// and 9223372036854775807 or a year-9999 date for good (5.2.2, measured
+/// 2026-09-25), with tokio clamping rather than refusing the sleep.
+const MAX_RETRY_AFTER: Duration = Duration::from_millis(2_147_483_647);
 /// The most addresses `POST /batch` takes in one call; a larger batch is sent
 /// in chunks of this size.
 const BATCH_MAX: usize = 1000;
@@ -50,6 +57,10 @@ pub struct Client(Arc<Inner>);
 struct Inner {
     transport: Transport,
     cache: Option<Cache<String, Lookup>>,
+    /// The addresses with a request in flight, shared by a lookup and a batch.
+    /// Only a client that caches shares them: without a cache every lookup is
+    /// served, as [`ClientBuilder::no_cache`] promises.
+    flights: Flights,
     concurrency: usize,
     retries: u32,
     timeout: Duration,
@@ -69,34 +80,60 @@ impl Client {
     /// Classifies one address.
     ///
     /// A bogon is answered locally and never reaches the network. Everything
-    /// else is served, then cached for this client.
+    /// else is served, then cached for this client. Calls that miss the cache
+    /// while a request for their address is in flight, a batch's included, await
+    /// that request rather than sending their own.
     pub async fn lookup(&self, ip: &str) -> Result<Lookup, Error> {
         self.lookup_with(ip, LookupOptions::new()).await
     }
 
-    /// [`Client::lookup`], with this call's own retry budget and timeout.
+    /// [`Client::lookup`], with this call's own retry budget and timeout. A call
+    /// that joins a request already in flight takes that request's answer, sent
+    /// under the options of the call that led it.
     pub async fn lookup_with(&self, ip: &str, opts: LookupOptions) -> Result<Lookup, Error> {
+        let timeout = self.call_timeout(opts.timeout)?;
+        let retries = opts.retries.unwrap_or(self.0.retries);
         if is_bogon(ip) {
             return Ok(bogon_lookup(ip));
         }
-        if let Some(cache) = &self.0.cache {
+        let Some(cache) = &self.0.cache else {
+            return self.serve(ip, retries, timeout).await;
+        };
+
+        loop {
             if let Some(hit) = cache.get(ip).await {
                 return Ok(hit);
             }
+            let (mut pilot, joined) = self.0.flights.board([ip]);
+            if let Some((_, flight)) = joined.into_iter().next() {
+                match flight.await {
+                    Ok(landed) => return restate(&landed),
+                    // Its leader was dropped before the answer landed.
+                    Err(_) => continue,
+                }
+            }
+            // A request that landed between the miss above and boarding cached
+            // its answer before leaving the board, so it is found here.
+            let answer = match cache.get(ip).await {
+                Some(hit) => Ok(hit),
+                None => {
+                    let answer = self.serve(ip, retries, timeout).await;
+                    if let Ok(lookup) = &answer {
+                        cache.insert(ip.to_owned(), lookup.clone()).await;
+                    }
+                    answer
+                }
+            };
+            pilot.land(ip, &answer);
+            return answer;
         }
+    }
 
+    async fn serve(&self, ip: &str, retries: u32, timeout: Duration) -> Result<Lookup, Error> {
         let path = format!("/{}", encode_path_segment(ip));
-        let timeout = opts.timeout.unwrap_or(self.0.timeout);
-        let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json(&path, &[], timeout)
-        })
-        .await?;
-
-        let lookup = Lookup::served(answer);
-        if let Some(cache) = &self.0.cache {
-            cache.insert(ip.to_owned(), lookup.clone()).await;
-        }
-        Ok(lookup)
+        let answer: LookupResponse =
+            with_retry(retries, || self.0.transport.get_json(&path, &[], timeout)).await?;
+        Ok(Lookup::served(answer))
     }
 
     /// Classifies the address this client is calling from.
@@ -115,7 +152,7 @@ impl Client {
 
     /// [`Client::my_ip`], with this call's own retry budget and timeout.
     pub async fn my_ip_with(&self, opts: LookupOptions) -> Result<Lookup, Error> {
-        let timeout = opts.timeout.unwrap_or(self.0.timeout);
+        let timeout = self.call_timeout(opts.timeout)?;
         let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
             self.0.transport.get_json("/myip", &[], timeout)
         })
@@ -147,7 +184,7 @@ impl Client {
 
     /// [`Client::my_entitlement`], with this call's own retry budget and timeout.
     pub async fn my_entitlement_with(&self, opts: LookupOptions) -> Result<Entitlement, Error> {
-        let timeout = opts.timeout.unwrap_or(self.0.timeout);
+        let timeout = self.call_timeout(opts.timeout)?;
         with_retry(opts.retries.unwrap_or(self.0.retries), || {
             self.0.transport.get_json("/api/v1/entitlement", &[], timeout)
         })
@@ -156,9 +193,10 @@ impl Client {
 
     /// Classifies many addresses in as few requests as possible.
     ///
-    /// Bogons are answered locally and cached answers are reused; everything
-    /// else goes to `POST /batch` in chunks of up to 1000 addresses, with at
-    /// most `concurrency` chunks in flight. The answers are keyed by address
+    /// Bogons are answered locally and cached answers are reused, and an address
+    /// with a request already in flight, a single lookup's or another batch's,
+    /// awaits that request; everything else goes to `POST /batch` in chunks of up
+    /// to 1000 addresses, with at most `concurrency` chunks in flight. The answers are keyed by address
     /// rather than positional, so duplicates in the input collapse to a single
     /// entry and the caller never has to line two lists up. Keys are in the
     /// order the addresses were first seen. An address that fails carries its
@@ -178,11 +216,18 @@ impl Client {
         let unique = dedupe(ips);
         let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
-        let timeout = opts.timeout.unwrap_or(self.0.timeout);
-        if concurrency == 0 {
-            let refused = || Error::Config("concurrency must be at least 1".to_owned());
-            return unique.into_iter().map(|ip| (ip, Err(refused()))).collect();
+        let refused = match self.call_timeout(opts.timeout) {
+            Err(err) => Some(err.message()),
+            Ok(_) if concurrency == 0 => Some("concurrency must be at least 1".to_owned()),
+            Ok(_) => None,
+        };
+        if let Some(message) = refused {
+            return unique
+                .into_iter()
+                .map(|ip| (ip, Err(Error::Config(message.clone()))))
+                .collect();
         }
+        let timeout = opts.timeout.unwrap_or(self.0.timeout);
 
         let mut answers: HashMap<String, Result<Lookup, Error>> =
             HashMap::with_capacity(unique.len());
@@ -201,18 +246,59 @@ impl Client {
             pending.push(ip.clone());
         }
 
+        // Each address with a request in flight awaits it, and the rest are
+        // boarded before any chunk is built, so a lookup arriving meanwhile
+        // awaits this batch's answer in turn. A request that landed since the
+        // cache was read above cached its answer first, so a led address is
+        // looked up there once more before it is sent.
+        let (mut pilot, joined) = match &self.0.cache {
+            Some(_) => self.0.flights.board(pending.iter().map(String::as_str)),
+            None => self.0.flights.board([]),
+        };
+        let mut send: Vec<String> = Vec::with_capacity(pending.len());
+        for ip in pending {
+            if joined.iter().any(|(joined_ip, _)| *joined_ip == ip) {
+                continue;
+            }
+            if let Some(cache) = self.0.cache.as_ref().filter(|_| pilot.leads(&ip)) {
+                if let Some(hit) = cache.get(&ip).await {
+                    let hit = Ok(hit);
+                    pilot.land(&ip, &hit);
+                    answers.insert(ip, hit);
+                    continue;
+                }
+            }
+            send.push(ip);
+        }
+
         // buffer_unordered completes out of order, so each chunk's answers are
         // gathered as they land and the map is assembled in input order at the
         // end, which is what keeps it insertion-ordered whatever order the
         // network answers in.
-        let chunks: Vec<Vec<String>> = pending.chunks(BATCH_MAX).map(<[String]>::to_vec).collect();
+        let chunks: Vec<Vec<String>> = send.chunks(BATCH_MAX).map(<[String]>::to_vec).collect();
         {
             let mut stream = futures_util::stream::iter(chunks)
                 .map(|chunk| async move { self.lookup_chunk(chunk, retries, timeout).await })
                 .buffer_unordered(concurrency);
             while let Some(chunk_answers) = stream.next().await {
-                answers.extend(chunk_answers);
+                for (ip, answer) in chunk_answers {
+                    pilot.land(&ip, &answer);
+                    answers.insert(ip, answer);
+                }
             }
+        }
+        drop(pilot);
+        for (ip, flight) in joined {
+            let answer = match flight.await {
+                Ok(landed) => restate(&landed),
+                // Its leader was dropped before the answer landed, so this one
+                // goes alone, sharing whatever is in flight by then.
+                Err(_) => {
+                    let opts = LookupOptions { retries: Some(retries), timeout: Some(timeout) };
+                    self.lookup_with(&ip, opts).await
+                }
+            };
+            answers.insert(ip, answer);
         }
 
         unique
@@ -294,6 +380,22 @@ impl Client {
 
     pub(crate) fn timeout(&self) -> Duration {
         self.0.timeout
+    }
+
+    /// One call's timeout: its own, else the client's. Zero is refused here, before
+    /// a bogon or a cache hit could answer without a request to fail, since no
+    /// attempt can meet it: accepted, it failed every call as a retried network
+    /// error after ~750 ms of backoff (5.2.2, measured 2026-09-25). `build`
+    /// refuses the client's own zero. `Duration::MAX` needs no refusal, since
+    /// tokio clamps a deadline past its reach rather than failing.
+    pub(crate) fn call_timeout(&self, per_call: Option<Duration>) -> Result<Duration, Error> {
+        match per_call {
+            Some(timeout) if timeout.is_zero() => {
+                Err(Error::Config("timeout must be positive".to_owned()))
+            }
+            Some(timeout) => Ok(timeout),
+            None => Ok(self.0.timeout),
+        }
     }
 }
 
@@ -433,6 +535,7 @@ impl ClientBuilder {
             ),
             cache: (!self.cache_off)
                 .then(|| Cache::builder().max_capacity(capacity).time_to_live(ttl).build()),
+            flights: Flights::default(),
             concurrency,
             retries: self.retries.unwrap_or(DEFAULT_RETRIES),
             timeout,
@@ -505,7 +608,7 @@ impl BatchOptions {
 }
 
 /// Backs off exponentially, except that a server-supplied `Retry-After` wins
-/// over the schedule. A 429 WITHOUT that header is a spent allowance rather than
+/// over the schedule, up to [`MAX_RETRY_AFTER`]. A 429 WITHOUT that header is a spent allowance rather than
 /// a throttle and is not retried at all, which [`Error::retryable`] decides.
 pub(crate) async fn with_retry<T, E, F, Fut>(retries: u32, mut attempt: F) -> Result<T, E>
 where
@@ -520,8 +623,9 @@ where
             Ok(value) => return Ok(value),
             Err(err) if remaining == 0 || !err.retryable() => return Err(err),
             Err(err) => {
-                tokio::time::sleep(err.retry_after().unwrap_or(delay)).await;
-                delay *= 2;
+                let wait = err.retry_after().filter(|wait| *wait <= MAX_RETRY_AFTER);
+                tokio::time::sleep(wait.unwrap_or(delay)).await;
+                delay = delay.saturating_mul(2);
                 remaining -= 1;
             }
         }

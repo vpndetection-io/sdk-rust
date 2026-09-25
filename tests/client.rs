@@ -579,3 +579,215 @@ fn assert_timed_out(call: &str, err: &Error) {
     assert!(err.retryable(), "{call}: a timeout is worth another attempt");
     assert!(err.message().contains("timed out"), "{call}: {}", err.message());
 }
+
+fn served(ip: &str) -> (String, Route) {
+    (format!("/{ip}"), Route::ok(format!(r#"{{"ip":"{ip}","is_vpn":false}}"#)))
+}
+
+/// A middleware looks the visitor up on every request a page fires, all at once,
+/// so concurrent misses for one address must share one request.
+#[tokio::test]
+async fn concurrent_misses_for_one_address_share_one_request() {
+    let stub = Stub::start_with_delay([served("45.83.91.1")], Duration::from_millis(200)).await;
+    let client = stub.client().build().expect("build");
+
+    let answers =
+        futures_util::future::join_all((0..20).map(|_| client.lookup("45.83.91.1"))).await;
+
+    assert_eq!(stub.count(), 1, "20 concurrent callers sent {} requests", stub.count());
+    for answer in answers {
+        assert_eq!(answer.expect("every caller is answered").ip, "45.83.91.1");
+    }
+}
+
+/// A failure is handed to every caller waiting on it and cached for none, so the
+/// next call asks again.
+#[tokio::test]
+async fn a_shared_failure_reaches_every_waiter_and_is_not_cached() {
+    let stub = Stub::start_with_delay([], Duration::from_millis(200)).await;
+    stub.sequence(
+        "/45.83.91.1",
+        [
+            Route::json(403, r#"{"error":"forbidden"}"#),
+            Route::ok(r#"{"ip":"45.83.91.1","is_vpn":true}"#),
+        ],
+    );
+    let client = stub.client().build().expect("build");
+
+    let answers = futures_util::future::join_all((0..5).map(|_| client.lookup("45.83.91.1"))).await;
+
+    assert_eq!(stub.count(), 1);
+    for answer in answers {
+        assert_eq!(answer.expect_err("the one request failed").kind(), ErrorKind::Forbidden);
+    }
+    assert!(client.lookup("45.83.91.1").await.expect("asked again").is_vpn);
+    assert_eq!(stub.count(), 2, "the failure was cached");
+}
+
+/// A batch awaits the lookup already in flight for one of its addresses rather
+/// than sending that address again.
+#[tokio::test]
+async fn a_batch_awaits_a_lookup_in_flight() {
+    let stub = Stub::start_with_delay([served("45.83.91.1"), served("45.83.91.2")], STAGGER).await;
+    let client = stub.client().build().expect("build");
+
+    let (single, batch) = tokio::join!(client.lookup("45.83.91.1"), async {
+        tokio::time::sleep(STAGGER / 4).await;
+        client.lookup_batch(["45.83.91.1", "45.83.91.2"], BatchOptions::new()).await
+    });
+
+    single.expect("the lookup");
+    assert!(batch.values().all(Result::is_ok), "{batch:?}");
+    let calls = stub.requests();
+    assert_eq!(calls.len(), 2, "{:?}", stub.calls());
+    let posted = calls.iter().find(|call| call.path == "/batch").expect("the batch was sent");
+    assert!(!posted.body.contains("45.83.91.1"), "the batch sent it again: {}", posted.body);
+}
+
+/// A lookup awaits the batch in flight that carries its address.
+#[tokio::test]
+async fn a_lookup_awaits_a_batch_in_flight() {
+    let stub = Stub::start_with_delay([served("45.83.91.1"), served("45.83.91.2")], STAGGER).await;
+    let client = stub.client().build().expect("build");
+
+    let (batch, single) = tokio::join!(
+        client.lookup_batch(["45.83.91.1", "45.83.91.2"], BatchOptions::new()),
+        async {
+            tokio::time::sleep(STAGGER / 4).await;
+            client.lookup("45.83.91.2").await
+        }
+    );
+
+    assert!(batch.values().all(Result::is_ok), "{batch:?}");
+    assert_eq!(single.expect("the lookup").ip, "45.83.91.2");
+    assert_eq!(stub.calls(), ["/batch"]);
+}
+
+/// A lookup that joined a batch takes the batch's answer for its address, a
+/// failed one included, which the cache never holds for it to fall back on.
+#[tokio::test]
+async fn a_lookup_takes_the_failure_of_the_batch_it_joined() {
+    let refused = ("/45.83.91.2".to_owned(), Route::json(403, r#"{"error":"forbidden"}"#));
+    let stub = Stub::start_with_delay([served("45.83.91.1"), refused], STAGGER).await;
+    let client = stub.client().build().expect("build");
+
+    let (_, single) = tokio::join!(
+        client.lookup_batch(["45.83.91.1", "45.83.91.2"], BatchOptions::new()),
+        async {
+            tokio::time::sleep(STAGGER / 4).await;
+            client.lookup("45.83.91.2").await
+        }
+    );
+
+    assert_eq!(single.expect_err("the batch's failure").kind(), ErrorKind::Forbidden);
+    assert_eq!(stub.calls(), ["/batch"]);
+}
+
+/// Dropping the caller that leads a request must not fail the others waiting on
+/// it: one of them asks again.
+#[tokio::test]
+async fn a_waiter_outlives_the_caller_it_joined() {
+    let stub = Stub::start_with_delay([served("45.83.91.1")], STAGGER).await;
+    let client = stub.client().build().expect("build");
+
+    let leader = tokio::time::timeout(STAGGER / 2, client.lookup("45.83.91.1"));
+    let waiter = async {
+        tokio::time::sleep(STAGGER / 4).await;
+        client.lookup("45.83.91.1").await
+    };
+    let (dropped, answer) = tokio::join!(leader, waiter);
+
+    assert!(dropped.is_err(), "the leader should have been cut off");
+    assert_eq!(answer.expect("the waiter asked again").ip, "45.83.91.1");
+    assert_eq!(stub.count(), 2);
+}
+
+/// Without a cache every lookup is served, as `no_cache` promises.
+#[tokio::test]
+async fn a_client_without_a_cache_shares_nothing() {
+    let stub = Stub::start_with_delay([served("45.83.91.1")], Duration::from_millis(100)).await;
+    let client = stub.client().no_cache().build().expect("build");
+
+    futures_util::future::join_all((0..3).map(|_| client.lookup("45.83.91.1"))).await;
+    let batch = || client.lookup_batch(["45.83.91.1"], BatchOptions::new());
+    tokio::join!(batch(), batch());
+
+    assert_eq!(stub.calls(), ["/45.83.91.1", "/45.83.91.1", "/45.83.91.1", "/batch", "/batch"]);
+}
+
+/// Long enough that a call started a quarter of it later is still concurrent.
+const STAGGER: Duration = Duration::from_millis(400);
+
+/// No attempt can meet a zero timeout, so it is refused where it is set, before a
+/// bogon or a cache hit can answer without a request to fail.
+#[tokio::test]
+async fn a_zero_per_call_timeout_is_refused_before_anything_answers() {
+    let stub = Stub::start([served("45.83.91.1")]).await;
+    let client = stub.client().build().expect("build");
+    client.lookup("45.83.91.1").await.expect("warm the cache");
+    let zero = || LookupOptions::new().timeout(Duration::ZERO);
+
+    for (call, answer) in [
+        ("a served address", client.lookup_with("45.83.91.2", zero()).await.map(|_| ())),
+        ("a bogon", client.lookup_with("10.0.0.1", zero()).await.map(|_| ())),
+        ("a cache hit", client.lookup_with("45.83.91.1", zero()).await.map(|_| ())),
+        ("my_ip", client.my_ip_with(zero()).await.map(|_| ())),
+        ("my_entitlement", client.my_entitlement_with(zero()).await.map(|_| ())),
+    ] {
+        let err = answer.expect_err(call);
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{call}: {err}");
+    }
+    let batch = client
+        .lookup_batch(["10.0.0.1", "45.83.91.1"], BatchOptions::new().timeout(Duration::ZERO))
+        .await;
+    for (ip, answer) in batch {
+        assert_eq!(answer.expect_err(&ip).kind(), ErrorKind::BadRequest, "{ip}");
+    }
+    assert_eq!(stub.count(), 1, "a refused call still sent a request");
+}
+
+/// Past 2^31 - 1 ms a `Retry-After` is waited out on the client's own backoff,
+/// still a throttle, from the API and from object storage alike.
+#[tokio::test]
+async fn a_retry_after_past_its_bound_waits_the_backoff() {
+    for value in ["2147484", "9223372036854775807", "Fri, 31 Dec 9999 23:59:59 GMT"] {
+        let stub = Stub::start([]).await;
+        stub.sequence(
+            "/45.83.91.1",
+            [
+                Route::json(429, r#"{"error":"slow down"}"#).header("Retry-After", value),
+                Route::ok(r#"{"ip":"45.83.91.1","is_vpn":false}"#),
+            ],
+        );
+        let client = stub.client().build().expect("build");
+        let answer = tokio::time::timeout(Duration::from_secs(5), client.lookup("45.83.91.1"))
+            .await
+            .unwrap_or_else(|_| panic!("Retry-After {value} held the call"));
+        assert_eq!(answer.expect("retried").ip, "45.83.91.1", "Retry-After {value}");
+
+        let stub = Stub::start([]).await;
+        let object = format!("{}/object", stub.base_url);
+        stub.route("/api/v1/database/download", Route::json(302, "").header("Location", &object));
+        stub.sequence(
+            "/object",
+            [Route::json(429, "").header("Retry-After", value), Route::ok("abcd")],
+        );
+        let client = stub.client().build().expect("build");
+        let database = client.database();
+        let download = database.download_bytes("vpn_ip", DatabaseFormat::Csvgz);
+        let bytes = tokio::time::timeout(Duration::from_secs(5), download)
+            .await
+            .unwrap_or_else(|_| panic!("Retry-After {value} held the transfer"));
+        assert_eq!(bytes.expect("retried").len(), 4, "Retry-After {value}");
+    }
+
+    // One below the bound is still the server's to set.
+    let stub = Stub::start([]).await;
+    stub.sequence(
+        "/45.83.91.1",
+        [Route::json(429, r#"{"error":"slow down"}"#).header("Retry-After", "2147483")],
+    );
+    let client = stub.client().build().expect("build");
+    let held = tokio::time::timeout(Duration::from_secs(2), client.lookup("45.83.91.1")).await;
+    assert!(held.is_err(), "Retry-After 2147483 was not waited out");
+}

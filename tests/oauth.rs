@@ -373,3 +373,75 @@ fn device(interval: i64) -> DeviceAuthorization {
     });
     serde_json::from_value(value).expect("a device authorization")
 }
+
+/// The time left is rarely whole seconds here, so a sleep dropping the fraction
+/// polls again short of the deadline; only such a poll reaches the approval.
+#[tokio::test]
+async fn the_poll_sleeps_the_fraction_left_before_its_deadline() {
+    let stub = Stub::start([]).await;
+    stub.sequence(
+        "/oauth/token",
+        [
+            Route::json(400, r#"{"error":"authorization_pending"}"#),
+            Route::ok(EVERY_REQUIRED_MEMBER),
+        ],
+    );
+    let client = stub.client().build().expect("build");
+    let device: DeviceAuthorization = serde_json::from_value(serde_json::json!({
+        "device_code": "mo_dc_x", "user_code": "BCDF-GHJK",
+        "verification_uri": "https://app.example.test/device", "expires_in": 2, "interval": 1,
+    }))
+    .expect("device");
+
+    let start = Instant::now();
+    let err = client.oauth().poll_device_token(CLIENT_ID, &device).await.expect_err("expired");
+    let settled = start.elapsed();
+
+    assert_eq!(stub.count(), 1, "polled again before the deadline");
+    assert!(matches!(err, OauthError::ExpiredToken(ref e) if e.status.is_none()), "{err:?}");
+    assert!(settled >= Duration::from_millis(1950), "expired before its deadline: {settled:?}");
+    assert!(settled < Duration::from_millis(3500), "{settled:?}");
+}
+
+/// A zero timeout is refused on every OAuth call, the poll's before its first
+/// wait rather than an interval later.
+#[tokio::test]
+async fn a_zero_oauth_timeout_is_refused_before_any_request() {
+    let stub = Stub::start(every_path(Route::ok(EVERY_REQUIRED_MEMBER))).await;
+    let client = stub.client().build().expect("build");
+    let oauth = client.oauth();
+    let zero = || OauthOptions::new().timeout(Duration::ZERO);
+    let device: DeviceAuthorization = serde_json::from_value(serde_json::json!({
+        "device_code": "mo_dc_x", "user_code": "BCDF-GHJK",
+        "verification_uri": "https://app.example.test/device", "expires_in": 900, "interval": 5,
+    }))
+    .expect("device");
+
+    let start = Instant::now();
+    for (call, answer) in [
+        ("metadata", oauth.metadata_with(zero()).await.map(|_| ())),
+        (
+            "device_authorization",
+            oauth
+                .device_authorization_with(
+                    CLIENT_ID,
+                    DeviceAuthorizationOptions::new().timeout(Duration::ZERO),
+                )
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "exchange",
+            oauth.exchange_device_code_with(CLIENT_ID, "mo_dc_x", zero()).await.map(|_| ()),
+        ),
+        ("revoke", oauth.revoke_with(CLIENT_ID, "mo_rt_x", zero()).await),
+        ("poll", oauth.poll_device_token_with(CLIENT_ID, &device, zero()).await.map(|_| ())),
+    ] {
+        match answer {
+            Err(OauthError::Client(err)) => assert_eq!(err.kind(), ErrorKind::BadRequest, "{call}"),
+            other => panic!("{call}: {other:?}"),
+        }
+    }
+    assert!(start.elapsed() < Duration::from_secs(1), "the poll waited before refusing");
+    assert_eq!(stub.count(), 0);
+}

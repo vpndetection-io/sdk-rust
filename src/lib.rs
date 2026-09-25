@@ -48,6 +48,7 @@ mod client;
 mod database;
 mod entitlement;
 mod error;
+mod flight;
 mod generated;
 mod lookup;
 pub mod middleware;

@@ -47,7 +47,7 @@ impl<'a> OauthApi<'a> {
 
     /// [`OauthApi::metadata`], with this call's own timeout.
     pub async fn metadata_with(&self, opts: OauthOptions) -> Result<OauthMetadata, OauthError> {
-        let timeout = self.timeout(opts.timeout);
+        let timeout = self.timeout(opts.timeout)?;
         with_retry(self.client.retries(), || async move {
             decode(self.client.transport().get_keyless(METADATA_PATH, timeout).await?)
         })
@@ -82,7 +82,7 @@ impl<'a> OauthApi<'a> {
         if let Some(resource) = opts.resource.as_deref().filter(|r| !r.is_empty()) {
             form.push(("resource", resource));
         }
-        let timeout = self.timeout(opts.timeout);
+        let timeout = self.timeout(opts.timeout)?;
         let form = &form;
         with_retry(self.client.retries(), || async move {
             let answer =
@@ -166,7 +166,7 @@ impl<'a> OauthApi<'a> {
         opts: OauthOptions,
     ) -> Result<(), OauthError> {
         let form = [("token", token), ("client_id", client_id)];
-        let timeout = self.timeout(opts.timeout);
+        let timeout = self.timeout(opts.timeout)?;
         let form = &form;
         with_retry(self.client.retries(), || async move {
             let answer = self.client.transport().post_form(REVOKE_PATH, form, timeout).await?;
@@ -219,11 +219,19 @@ impl<'a> OauthApi<'a> {
         opts: OauthOptions,
         clock: &C,
     ) -> Result<TokenResponse, OauthError> {
+        // Refused before the first wait rather than at the first exchange, an
+        // interval later.
+        self.timeout(opts.timeout)?;
         let mut interval =
             if device.interval >= 1 { device.interval } else { DEFAULT_POLL_INTERVAL };
-        let deadline = clock.now() + seconds(device.expires_in);
+        let deadline = clock.now().saturating_add(seconds(device.expires_in));
         loop {
-            clock.sleep(seconds(interval)).await;
+            // No wait runs past the deadline: an interval ending after it sleeps
+            // only the time left, and the expiry follows with nothing sent. In full,
+            // `interval` 2147483647 held a poll with 2 s left for 68 years, and a
+            // `slow_down` 5 s past it (5.2.2, measured 2026-09-25).
+            let left = deadline.saturating_sub(clock.now());
+            clock.sleep(seconds(interval).min(left)).await;
             if clock.now() >= deadline {
                 return Err(OauthError::ExpiredToken(OauthErrorResponse {
                     error_code: "expired_token".to_owned(),
@@ -234,7 +242,7 @@ impl<'a> OauthApi<'a> {
             match self.exchange_device_code_with(client_id, &device.device_code, opts.clone()).await
             {
                 Err(OauthError::Rejected(refused)) if refused.error_code == "slow_down" => {
-                    interval += SLOW_DOWN_STEP;
+                    interval = interval.saturating_add(SLOW_DOWN_STEP);
                 }
                 Err(OauthError::Rejected(refused))
                     if refused.error_code == "authorization_pending" => {}
@@ -248,12 +256,12 @@ impl<'a> OauthApi<'a> {
         form: &[(&str, &str)],
         opts: OauthOptions,
     ) -> Result<TokenResponse, OauthError> {
-        let timeout = self.timeout(opts.timeout);
+        let timeout = self.timeout(opts.timeout)?;
         decode(self.client.transport().post_form(TOKEN_PATH, form, timeout).await?)
     }
 
-    fn timeout(&self, per_call: Option<Duration>) -> Duration {
-        per_call.unwrap_or(self.client.timeout())
+    fn timeout(&self, per_call: Option<Duration>) -> Result<Duration, Error> {
+        self.client.call_timeout(per_call)
     }
 }
 

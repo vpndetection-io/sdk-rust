@@ -1,6 +1,6 @@
 [package]
 name = "vpndetection"
-version = "5.2.2"
+version = "5.2.3"
 edition = "2024"
 rust-version = "1.85"
 description = "The official Rust client library for the VPNDetection API: anonymity detection covering VPNs, residential proxies, Tor nodes, hosting servers, CDNs and relays."
@@ -28,7 +28,7 @@ serde_with = { version = "3", default-features = false, features = ["macros", "s
 # emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
 # stays out of the crate's public surface.
 uuid = { version = "1", features = ["serde"] }
-tokio = { version = "1", features = ["fs", "io-util", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
 
 [dev-dependencies]
 # Already in the build through reqwest's form and query features. The OAuth
