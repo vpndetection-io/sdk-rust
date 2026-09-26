@@ -173,6 +173,26 @@ async fn a_truncated_download_bytes_fails_rather_than_returning_a_short_buffer()
     assert!(err.retryable(), "a transfer that ended early is worth another attempt: {err}");
 }
 
+/// The declared length is the server's word, so it sizes nothing unchecked: a
+/// `Content-Length` of 2^62 aborted the whole process in `Vec::with_capacity`
+/// before a byte arrived (5.2.3). The call fails instead, naming `download`.
+#[tokio::test]
+async fn download_bytes_fails_a_length_no_process_can_hold() {
+    let stub = serving(Route::ok("").promising(1 << 62)).await;
+    let client = stub.client().api_key(KEY).build().expect("build");
+
+    let err = client
+        .database()
+        .download_bytes(DATASET, DatabaseFormat::Csvgz)
+        .await
+        .expect_err("a 4 EiB buffer cannot be held");
+
+    assert_eq!(err.kind(), ErrorKind::Io, "{err}");
+    assert!(!err.retryable(), "{err}");
+    assert!(err.message().contains("DatabaseApi::download"), "{err}");
+    assert_eq!(storage_requests(&stub), 1);
+}
+
 /// A license refusal is a client error: it carries the API's own `rc`, it is not
 /// retried, and it never reaches object storage at all.
 #[tokio::test]

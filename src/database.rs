@@ -128,8 +128,24 @@ impl<'a> DatabaseApi<'a> {
         let mut response = self.fetch_file(id, format).await?;
         let declared = response.content_length();
         // Allocated once from the declared length. A Vec grows by doubling, so
-        // the last grow of a large dataset alone costs twice the file.
-        let mut bytes = Vec::with_capacity(declared.unwrap_or(0) as usize);
+        // the last grow of a large dataset alone costs twice the file. Reserved
+        // fallibly, because the length is the server's word: `with_capacity`
+        // ABORTED the process for a declared 2^62 bytes before one arrived
+        // (5.2.3, measured 2026-09-26), where this fails the call.
+        let mut bytes = Vec::new();
+        if let Some(length) = declared {
+            bytes.try_reserve_exact(usize::try_from(length).unwrap_or(usize::MAX)).map_err(
+                |_| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::OutOfMemory,
+                        format!(
+                            "the file declares {length} bytes, more than this process can hold: \
+                             use DatabaseApi::download to write it to disk"
+                        ),
+                    ))
+                },
+            )?;
+        }
         while let Some(chunk) = response.chunk().await? {
             bytes.extend_from_slice(&chunk);
         }
