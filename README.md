@@ -1,4 +1,4 @@
-# [<img src="https://s3.vpndetection.io/vpndetection-public/brand/mark.svg" alt="VPNDetection" width="24"/>](https://vpndetection.io/) VPNDetection Rust Client Library
+# [<img src="https://s3.vpndetection.io/vpndetection-public/brand/mark.svg" alt="VPNDetection" height="28"/>](https://vpndetection.io/) VPNDetection Rust Client Library
 
 [![crates.io](https://img.shields.io/crates/v/vpndetection.svg)](https://crates.io/crates/vpndetection)
 [![docs.rs](https://img.shields.io/docsrs/vpndetection)](https://docs.rs/vpndetection)
