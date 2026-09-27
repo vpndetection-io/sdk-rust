@@ -69,11 +69,6 @@ pub fn assert_members(
     absent: &[String],
 ) {
     for (name, want) in present {
-        // Advertised by the corpus's metadata, no longer by the server, and not
-        // a member of this release's type (sdk-go 14e52de skips it too).
-        if name == "client_id_metadata_document_supported" {
-            continue;
-        }
         assert_eq!(member(name).as_ref(), Some(want), "{case}: {name}");
     }
     for name in absent {
@@ -129,6 +124,9 @@ pub fn metadata_member(metadata: &OauthMetadata, name: &str) -> Option<Value> {
         }
         "authorization_response_iss_parameter_supported" => {
             m.authorization_response_iss_parameter_supported.map(|v| json!(v))
+        }
+        "client_id_metadata_document_supported" => {
+            m.client_id_metadata_document_supported.map(|v| json!(v))
         }
         "service_documentation" => m.service_documentation.as_ref().map(|v| json!(v)),
         other => panic!("OauthMetadata has no member {other}"),
