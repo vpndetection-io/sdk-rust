@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use indexmap::IndexMap;
 use moka::future::Cache;
 
-use crate::bogon::{bogon_lookup, is_bogon};
+use crate::bogon::{bogon_lookup, is_bogon, unmapped};
 use crate::database::DatabaseApi;
 use crate::entitlement::Entitlement;
 use crate::error::{Error, ErrorKind};
@@ -82,7 +82,9 @@ impl Client {
     /// A bogon is answered locally and never reaches the network. Everything
     /// else is served, then cached for this client. Calls that miss the cache
     /// while a request for their address is in flight, a batch's included, await
-    /// that request rather than sending their own.
+    /// that request rather than sending their own. An IPv4-mapped address
+    /// (`::ffff:8.8.8.8`) is the IPv4 address it carries: judged, sent and cached
+    /// as that, so the answer names `8.8.8.8`.
     pub async fn lookup(&self, ip: &str) -> Result<Lookup, Error> {
         self.lookup_with(ip, LookupOptions::new()).await
     }
@@ -93,6 +95,8 @@ impl Client {
     pub async fn lookup_with(&self, ip: &str, opts: LookupOptions) -> Result<Lookup, Error> {
         let timeout = self.call_timeout(opts.timeout)?;
         let retries = opts.retries.unwrap_or(self.0.retries);
+        let carried = unmapped(ip);
+        let ip: &str = &carried;
         if is_bogon(ip) {
             return Ok(bogon_lookup(ip));
         }
@@ -213,7 +217,11 @@ impl Client {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let unique = dedupe(ips);
+        // An IPv4-mapped address is looked up as the IPv4 address it carries,
+        // once, and its answer keyed as the caller passed it.
+        let asked = dedupe(ips);
+        let wire: Vec<String> = asked.iter().map(|ip| unmapped(ip).into_owned()).collect();
+        let unique = dedupe(&wire);
         let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
         let refused = match self.call_timeout(opts.timeout) {
@@ -222,10 +230,7 @@ impl Client {
             Ok(_) => None,
         };
         if let Some(message) = refused {
-            return unique
-                .into_iter()
-                .map(|ip| (ip, Err(Error::Config(message.clone()))))
-                .collect();
+            return asked.into_iter().map(|ip| (ip, Err(Error::Config(message.clone())))).collect();
         }
         let timeout = opts.timeout.unwrap_or(self.0.timeout);
 
@@ -301,10 +306,23 @@ impl Client {
             answers.insert(ip, answer);
         }
 
-        unique
+        // Two spellings of one address share its answer: restated for all but
+        // the last, which takes it.
+        let mut uses: HashMap<&str, usize> = HashMap::with_capacity(wire.len());
+        for ip in &wire {
+            *uses.entry(ip.as_str()).or_default() += 1;
+        }
+        asked
             .into_iter()
-            .map(|ip| {
-                let answer = answers.remove(&ip).expect("every address is answered exactly once");
+            .zip(&wire)
+            .map(|(ip, wire)| {
+                let left = uses.get_mut(wire.as_str()).expect("every address is counted");
+                *left -= 1;
+                let answer = if *left == 0 {
+                    answers.remove(wire).expect("every address is answered exactly once")
+                } else {
+                    restate(answers.get(wire).expect("every address is answered"))
+                };
                 (ip, answer)
             })
             .collect()

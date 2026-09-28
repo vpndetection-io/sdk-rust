@@ -27,6 +27,49 @@ fn is_bogon_matches_the_canonical_ranges() {
     }
 }
 
+// A listener on :: sees an IPv4 visitor as ::ffff:a.b.c.d, which read whole is
+// inside ::ffff:0:0/96: through 5.3.0 each was answered as a bogon with no
+// request made.
+#[tokio::test]
+async fn an_ipv4_mapped_address_is_the_ipv4_address_it_carries() {
+    for case in corpus::load().ipv4_mapped {
+        assert_eq!(is_bogon(&case.ip), case.expect, "is_bogon({:?}) ({})", case.ip, case.why);
+        let body = json!({"ip": case.carries, "is_vpn": true}).to_string();
+        let routes = || [(format!("/{}", case.carries), Route::json(200, body.clone()))];
+        let want_sent: Vec<String> =
+            if case.expect { Vec::new() } else { vec![case.carries.clone()] };
+
+        let stub = Stub::start(routes()).await;
+        let client = stub.client().build().expect("build");
+        let result = client.lookup(&case.ip).await.unwrap_or_else(|e| panic!("{}: {e}", case.ip));
+        assert_eq!(result.is_bogon, case.expect, "{}", case.ip);
+        assert_eq!(result.ip, case.carries, "{}", case.ip);
+        client.lookup(&case.carries).await.expect("a lookup of the carried address");
+        let paths: Vec<String> = stub.requests().into_iter().map(|call| call.path).collect();
+        let want_paths: Vec<String> = want_sent.iter().map(|ip| format!("/{ip}")).collect();
+        assert_eq!(paths, want_paths, "{}: one request, cached as {}", case.ip, case.carries);
+
+        let batch_stub = Stub::start(routes()).await;
+        let uncached = batch_stub.client().no_cache().build().expect("build");
+        let mut asked = vec![case.ip.clone()];
+        if case.carries != case.ip {
+            asked.push(case.carries.clone());
+        }
+        let got = uncached.lookup_batch(&asked, BatchOptions::new()).await;
+        assert_eq!(got.keys().cloned().collect::<Vec<_>>(), asked, "{}", case.ip);
+        let answer = got[&case.ip].as_ref().unwrap_or_else(|e| panic!("{}: {e}", case.ip));
+        assert_eq!(answer.ip, case.carries, "{}", case.ip);
+        let sent: Vec<String> = batch_stub
+            .requests()
+            .into_iter()
+            .filter_map(|call| serde_json::from_str::<Value>(&call.body).ok())
+            .flat_map(|body| body["ips"].as_array().cloned().unwrap_or_default())
+            .filter_map(|ip| ip.as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(sent, want_sent, "{}", case.ip);
+    }
+}
+
 #[tokio::test]
 async fn a_bogon_is_answered_locally_in_the_full_max_shape() {
     let data = corpus::load();

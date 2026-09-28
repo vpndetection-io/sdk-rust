@@ -16,6 +16,8 @@ pub fn load() -> Corpus {
 pub struct Corpus {
     #[serde(rename = "isBogon")]
     pub is_bogon: Vec<BogonCase>,
+    #[serde(rename = "ipv4Mapped")]
+    pub ipv4_mapped: Vec<MappedCase>,
     #[serde(rename = "bogonResponse")]
     pub bogon_response: BogonResponse,
     pub lookup: Vec<LookupCase>,
@@ -33,6 +35,14 @@ impl Corpus {
             .find(|c| c.name == name)
             .unwrap_or_else(|| panic!("the corpus has no batch case named {name:?}"))
     }
+}
+
+#[derive(Deserialize)]
+pub struct MappedCase {
+    pub ip: String,
+    pub carries: String,
+    pub expect: bool,
+    pub why: String,
 }
 
 #[derive(Deserialize)]

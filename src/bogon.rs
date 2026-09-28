@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -21,11 +22,24 @@ pub fn is_bogon(ip: &str) -> bool {
     let Ok(addr) = IpAddr::from_str(ip) else {
         return false;
     };
-    // A 4-in-6 address parses as V6 and is therefore tested against the v6
-    // table, which is the routing every other SDK uses. Unmapping it first would
-    // match it against the v4 table instead and disagree with all of them.
+    // An IPv4-mapped address is judged as the IPv4 address it carries: read
+    // whole it is inside ::ffff:0:0/96, and a listener on :: sees every IPv4
+    // visitor that way.
+    let addr = addr.to_canonical();
     let table: &[IpNet] = if addr.is_ipv4() { &PREFIXES_V4 } else { &PREFIXES_V6 };
     table.iter().any(|net| net.contains(&addr))
+}
+
+/// The IPv4 address an IPv4-mapped IPv6 address carries, dotted, and any other
+/// string as given: what a lookup sends and caches.
+pub(crate) fn unmapped(ip: &str) -> Cow<'_, str> {
+    match IpAddr::from_str(ip) {
+        Ok(IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => Cow::Owned(v4.to_string()),
+            None => Cow::Borrowed(ip),
+        },
+        _ => Cow::Borrowed(ip),
+    }
 }
 
 /// The answer a bogon gets: the full shape the API serves on its widest plan,
