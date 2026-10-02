@@ -15,7 +15,7 @@ categories = ["api-bindings", "network-programming"]
 exclude = ["/spec", "/scripts", "/.github", "/integration"]
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.20", features = ["serde"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 indexmap = "2"
 ipnet = "2"
@@ -28,13 +28,13 @@ serde_with = { version = "3", default-features = false, features = ["macros", "s
 # emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
 # stays out of the crate's public surface.
 uuid = { version = "1", features = ["serde"] }
-tokio = { version = "1", features = ["fs", "io-util", "sync", "time"] }
+tokio = { version = "1.44.2", features = ["fs", "io-util", "sync", "time"] }
 
 [dev-dependencies]
 # Already in the build through reqwest's form and query features. The OAuth
 # tests decode each request body with it.
 serde_urlencoded = "0.7"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "net", "time"] }
 
 [features]
 default = ["rustls-tls"]
