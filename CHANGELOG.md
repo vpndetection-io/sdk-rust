@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.3.3 - 2026-10-02
+
+### Fixes
+
+- Raise the tokio and chrono floors past their advisories ([`b13753c`](https://github.com/vpndetection-io/sdk-rust/commit/b13753cedc664d957f64eed5693eb21273e457e2))
+
 ## 5.3.2 - 2026-09-29
 
 ### Fixes
