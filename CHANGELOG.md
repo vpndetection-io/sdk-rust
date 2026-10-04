@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.3.4 - 2026-10-04
+
+### Fixes
+
+- Re-pin the spec to 2026.10.03: metadata needs no license ([`9f72575`](https://github.com/vpndetection-io/sdk-rust/commit/9f725755b71553fc518d59f343e3eb9d2e0383e9))
+
 ## 5.3.3 - 2026-10-02
 
 ### Fixes
