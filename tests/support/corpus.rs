@@ -168,8 +168,8 @@ pub struct InvalidConditionCase {
     pub condition: Value,
 }
 
-/// The `oauth` section, less `deferred`, which names operations this release
-/// does not ship and is never read.
+/// The `oauth` section. `deferred` holds the authorization code flow's
+/// vectors, whose form and retry cases join the main ones' loops.
 #[derive(Deserialize)]
 pub struct Oauth {
     pub endpoints: HashMap<String, OauthEndpoint>,
@@ -180,6 +180,45 @@ pub struct Oauth {
     pub errors: OauthErrors,
     pub retries: OauthRetries,
     pub poll: Poll,
+    pub deferred: Deferred,
+}
+
+#[derive(Deserialize)]
+pub struct Deferred {
+    pub pkce: PkceVector,
+    #[serde(rename = "authorizationUrl")]
+    pub authorization_url: Vec<AuthorizationUrlCase>,
+    pub forms: Vec<FormCase>,
+    pub retries: Vec<RetryCase>,
+}
+
+#[derive(Deserialize)]
+pub struct PkceVector {
+    pub verifier: String,
+    pub challenge: String,
+    pub method: String,
+    #[serde(rename = "generatedVerifierPattern")]
+    pub generated_verifier_pattern: String,
+}
+
+#[derive(Deserialize)]
+pub struct AuthorizationUrlCase {
+    pub name: String,
+    #[serde(rename = "baseUrl")]
+    pub base_url: String,
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    #[serde(rename = "redirectUri")]
+    pub redirect_uri: String,
+    #[serde(rename = "codeChallenge")]
+    pub code_challenge: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub resource: Option<String>,
+    pub expect: String,
 }
 
 #[derive(Deserialize)]
@@ -228,6 +267,12 @@ pub struct OauthArgs {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub token: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default, rename = "codeVerifier")]
+    pub code_verifier: Option<String>,
+    #[serde(default, rename = "redirectUri")]
+    pub redirect_uri: Option<String>,
 }
 
 #[derive(Deserialize)]

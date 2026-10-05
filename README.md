@@ -217,6 +217,29 @@ let keyed = Client::builder().api_key(apikey).build()?;
 
 A denied sign-in fails with `OauthError::AccessDenied` and a code that ran out with `OauthError::ExpiredToken`. Client IDs are issued on request from support@vpndetection.io, and `client.oauth().revoke("your-client-id", &refresh_token)` signs the machine out again.
 
+### Sign in with OAuth (authorization code)
+
+An app that can take a browser redirect signs the person in there instead, with a PKCE pair made for that one sign-in:
+
+```rust
+use vpndetection::{AuthorizationUrlOptions, Client};
+
+let client = Client::new()?;
+let redirect_uri = "http://127.0.0.1:8765/callback";
+let pkce = client.oauth().create_pkce()?;
+
+let opts = AuthorizationUrlOptions::new().scope("apikeys.use").state("your-state");
+let url =
+    client.oauth().authorization_url_with("your-client-id", redirect_uri, &pkce.challenge, opts)?;
+// Open url in the browser. Its redirect to redirect_uri carries code and state.
+let token = client
+    .oauth()
+    .exchange_authorization_code("your-client-id", &code, &pkce.verifier, redirect_uri)
+    .await?;
+```
+
+Check that `state` came back as you sent it before you exchange `code`, which works once. The client ID can also be the https URL of a client metadata document your app serves, and such an app is never handed a key, so `token.apikey` stays `None`.
+
 ### TLS backends
 
 `rustls` is the default, so the crate builds with no system libraries at all. If you would rather link the platform's TLS, or you already depend on `reqwest` with its own defaults and want one backend rather than two:

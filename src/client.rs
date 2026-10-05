@@ -381,9 +381,10 @@ impl Client {
         DatabaseApi::new(self)
     }
 
-    /// Signing a person in with the OAuth device flow, so a program on their
-    /// own machine can be handed one of their API keys. These requests never
-    /// carry this client's API key, so a client built without one works.
+    /// Signing a person in with OAuth: the device flow, so a program on their
+    /// own machine can be handed one of their API keys, or the authorization
+    /// code flow, for an app that can take a browser redirect. These requests
+    /// never carry this client's API key, so a client built without one works.
     pub fn oauth(&self) -> OauthApi<'_> {
         OauthApi::new(self)
     }

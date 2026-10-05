@@ -14,7 +14,8 @@ use support::oauth::{
 };
 use support::{Call, Route, Stub};
 use vpndetection::{
-    Client, DeviceAuthorization, DeviceAuthorizationOptions, ErrorKind, OauthError, OauthOptions,
+    AuthorizationUrlOptions, Client, DeviceAuthorization, DeviceAuthorizationOptions, ErrorKind,
+    OauthError, OauthOptions,
 };
 
 const CLIENT_ID: &str = "vpndetection-cli";
@@ -47,9 +48,30 @@ async fn no_oauth_request_carries_the_api_key() {
     oauth.exchange_refresh_token(CLIENT_ID, "mo_rt_x").await.expect("exchange refresh token");
     oauth.revoke(CLIENT_ID, "mo_rt_x").await.expect("revoke");
     oauth.poll_device_token(CLIENT_ID, &device).await.expect("poll");
+    oauth
+        .exchange_authorization_code(CLIENT_ID, "mo_ac_x", "verifier", "http://127.0.0.1:8765/cb")
+        .await
+        .expect("exchange authorization code");
+    let url = oauth
+        .authorization_url_with(
+            CLIENT_ID,
+            "http://127.0.0.1:8765/cb",
+            "challenge",
+            AuthorizationUrlOptions::new()
+                .scope("apikeys.use")
+                .state("s")
+                .resource("https://x.test/"),
+        )
+        .expect("authorization url");
+    assert!(!url.contains(data.no_credential.api_key.as_str()), "the key is in {url}");
+    let query = url.split_once('?').map(|(_, q)| q).unwrap_or_default();
+    for pair in query.split('&') {
+        let key = pair.split('=').next().unwrap_or_default();
+        assert!(!data.no_credential.forbidden_query.iter().any(|q| q == key), "{url}");
+    }
 
     let requests = stub.requests();
-    assert_eq!(requests.len(), 6, "every operation reached the stub once");
+    assert_eq!(requests.len(), 7, "every operation reached the stub once");
     for call in &requests {
         for name in &data.no_credential.forbidden_headers {
             assert_eq!(call.header(name), None, "{}: carried {name}", call.path);
@@ -73,7 +95,7 @@ async fn no_oauth_request_carries_the_api_key() {
 #[tokio::test]
 async fn each_form_goes_to_its_endpoint_with_exactly_its_fields() {
     let data = corpus::load().oauth;
-    for case in &data.forms.cases {
+    for case in data.forms.cases.iter().chain(&data.deferred.forms) {
         let stub = Stub::start(every_path(Route::ok(EVERY_REQUIRED_MEMBER))).await;
         let client = stub.client().build().expect("build");
 
@@ -143,7 +165,7 @@ async fn failures_are_classified_as_the_corpus_says() {
 #[tokio::test]
 async fn only_the_calls_that_consume_nothing_are_retried() {
     let data = corpus::load().oauth;
-    for case in &data.retries.cases {
+    for case in data.retries.cases.iter().chain(&data.deferred.retries) {
         let stub = Stub::start([]).await;
         let path = &data.endpoints[endpoint_of(&case.operation)].path;
         stub.sequence(path.as_str(), case.responses.iter().map(route));
@@ -230,6 +252,12 @@ async fn every_oauth_call_takes_a_per_call_timeout() {
             CALL_TIMEOUT,
         ),
         ("revoke", timed(oauth.revoke_with(CLIENT_ID, "x", opts())).await, CALL_TIMEOUT),
+        (
+            "exchange_authorization_code",
+            timed(oauth.exchange_authorization_code_with(CLIENT_ID, "x", "v", "http://r", opts()))
+                .await,
+            CALL_TIMEOUT,
+        ),
         (
             "poll_device_token",
             timed(oauth.poll_device_token_with(CLIENT_ID, &device, opts())).await,
@@ -321,6 +349,15 @@ async fn call(client: &Client, operation: &str, args: &OauthArgs) -> Result<(), 
             oauth.exchange_refresh_token(client_id, &arg(&args.refresh_token)).await.map(drop)
         }
         "revoke" => oauth.revoke(client_id, &arg(&args.token)).await,
+        "exchangeAuthorizationCode" => oauth
+            .exchange_authorization_code(
+                client_id,
+                &arg(&args.code),
+                &arg(&args.code_verifier),
+                &arg(&args.redirect_uri),
+            )
+            .await
+            .map(drop),
         other => panic!("the corpus names an operation this release lacks: {other}"),
     }
 }
@@ -329,7 +366,7 @@ fn endpoint_of(operation: &str) -> &'static str {
     match operation {
         "metadata" => "metadata",
         "deviceAuthorization" => "deviceAuthorization",
-        "exchangeDeviceCode" | "exchangeRefreshToken" => "token",
+        "exchangeDeviceCode" | "exchangeRefreshToken" | "exchangeAuthorizationCode" => "token",
         "revoke" => "revoke",
         other => panic!("no endpoint for {other}"),
     }
@@ -435,6 +472,13 @@ async fn a_zero_oauth_timeout_is_refused_before_any_request() {
             oauth.exchange_device_code_with(CLIENT_ID, "mo_dc_x", zero()).await.map(|_| ()),
         ),
         ("revoke", oauth.revoke_with(CLIENT_ID, "mo_rt_x", zero()).await),
+        (
+            "exchange_authorization_code",
+            oauth
+                .exchange_authorization_code_with(CLIENT_ID, "mo_ac_x", "v", "http://r", zero())
+                .await
+                .map(|_| ()),
+        ),
         ("poll", oauth.poll_device_token_with(CLIENT_ID, &device, zero()).await.map(|_| ())),
     ] {
         match answer {
@@ -444,4 +488,76 @@ async fn a_zero_oauth_timeout_is_refused_before_any_request() {
     }
     assert!(start.elapsed() < Duration::from_secs(1), "the poll waited before refusing");
     assert_eq!(stub.count(), 0);
+}
+
+/// RFC 7636's vector, then a generated pair: 43 characters of base64url, its
+/// own challenge, and a different verifier every time.
+#[test]
+fn pkce_pairs_match_the_rfc_vector_and_are_never_reused() {
+    let vector = corpus::load().oauth.deferred.pkce;
+    let client = Client::builder().build().expect("build");
+    let oauth = client.oauth();
+    assert_eq!(oauth.pkce_challenge(&vector.verifier), vector.challenge);
+
+    // The corpus states the pattern; this checks the one it states today.
+    assert_eq!(vector.generated_verifier_pattern, "^[A-Za-z0-9_-]{43}$");
+    let first = oauth.create_pkce().expect("pkce");
+    let second = oauth.create_pkce().expect("pkce");
+    for pkce in [&first, &second] {
+        assert_eq!(pkce.verifier.len(), 43, "{}", pkce.verifier);
+        assert!(
+            pkce.verifier.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "{}",
+            pkce.verifier
+        );
+        assert_eq!(pkce.challenge, oauth.pkce_challenge(&pkce.verifier));
+        assert_eq!(pkce.method, vector.method);
+    }
+    assert_ne!(first.verifier, second.verifier, "the same verifier twice");
+    assert!(!format!("{first:?}").contains(&first.verifier), "Debug shows the verifier");
+}
+
+#[tokio::test]
+async fn authorization_urls_are_built_exactly_and_send_nothing() {
+    for case in corpus::load().oauth.deferred.authorization_url {
+        let client = Client::builder().base_url(&case.base_url).build().expect("build");
+        let mut opts = AuthorizationUrlOptions::new();
+        if let Some(scope) = &case.scope {
+            opts = opts.scope(scope);
+        }
+        if let Some(state) = &case.state {
+            opts = opts.state(state);
+        }
+        if let Some(resource) = &case.resource {
+            opts = opts.resource(resource);
+        }
+        let url = client
+            .oauth()
+            .authorization_url_with(&case.client_id, &case.redirect_uri, &case.code_challenge, opts)
+            .unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        assert_eq!(url, case.expect, "{}", case.name);
+    }
+
+    let stub = Stub::start(every_path(Route::ok(EVERY_REQUIRED_MEMBER))).await;
+    let client = stub.client().build().expect("build");
+    client.oauth().authorization_url(CLIENT_ID, "http://127.0.0.1:8765/cb", "c").expect("url");
+    assert_eq!(stub.count(), 0, "building the URL sent a request");
+}
+
+/// An empty option is left out like an unset one; an empty required value is
+/// refused, since the server could only answer it with an error page.
+#[test]
+fn empty_values_are_left_out_or_refused() {
+    let client = Client::builder().base_url("https://vpndetection.io").build().expect("build");
+    let oauth = client.oauth();
+    let empty = AuthorizationUrlOptions::new().scope("").state("").resource("");
+    let url = oauth.authorization_url_with("c", "https://app.example/cb", "x", empty).expect("url");
+    assert_eq!(url, oauth.authorization_url("c", "https://app.example/cb", "x").expect("url"));
+    assert!(!url.contains("scope") && !url.contains("state") && !url.contains("resource"), "{url}");
+
+    for (client_id, redirect_uri, challenge) in [("", "r", "x"), ("c", "", "x"), ("c", "r", "")] {
+        let err = oauth.authorization_url(client_id, redirect_uri, challenge).expect_err("refused");
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{err}");
+        assert!(!err.retryable(), "{err}");
+    }
 }

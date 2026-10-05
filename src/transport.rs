@@ -24,6 +24,11 @@ impl Transport {
         Self { http, base_url, api_key }
     }
 
+    /// What every path is appended to, with no trailing `/`.
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// A JSON GET, decoded into `T`.
     ///
     /// `timeout` runs from connecting to the last byte of the body, which is

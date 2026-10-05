@@ -71,8 +71,8 @@ pub use entitlement::{Entitlement, EntitlementApikey, EntitlementPlan, Entitleme
 pub use error::{Error, ErrorKind};
 pub use lookup::Lookup;
 pub use oauth::{
-    DeviceAuthorization, DeviceAuthorizationOptions, OauthApi, OauthError, OauthErrorResponse,
-    OauthMetadata, OauthOptions, TokenResponse,
+    AuthorizationUrlOptions, DeviceAuthorization, DeviceAuthorizationOptions, OauthApi, OauthError,
+    OauthErrorResponse, OauthMetadata, OauthOptions, Pkce, TokenResponse,
 };
 
 // The wire shapes, generated from the OpenAPI spec and re-exported so a consumer

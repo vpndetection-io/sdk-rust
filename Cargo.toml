@@ -17,6 +17,8 @@ exclude = ["/spec", "/scripts", "/.github", "/integration"]
 [dependencies]
 chrono = { version = "0.4.20", features = ["serde"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# The PKCE verifier's 32 bytes, from the system's secure random source.
+getrandom = "0.4"
 indexmap = "2"
 ipnet = "2"
 moka = { version = "0.12", features = ["future"] }
@@ -24,6 +26,8 @@ reqwest = { version = "0.13", default-features = false, features = ["form", "jso
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = { version = "3", default-features = false, features = ["macros", "std"] }
+# The PKCE challenge, SHA-256 over the verifier.
+sha2 = { version = "0.11", default-features = false }
 # The generated wire models carry `format: uuid` fields, which the generator
 # emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
 # stays out of the crate's public surface.

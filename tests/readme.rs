@@ -7,7 +7,8 @@
 
 use std::time::Duration;
 use vpndetection::{
-    BatchOptions, Client, DatabaseFormat, DeviceAuthorizationOptions, ErrorKind, OauthError,
+    AuthorizationUrlOptions, BatchOptions, Client, DatabaseFormat, DeviceAuthorizationOptions,
+    ErrorKind, OauthError,
 };
 
 async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
@@ -105,6 +106,26 @@ async fn oauth_snippet() -> Result<(), Box<dyn std::error::Error>> {
         Err(OauthError::AccessDenied(_)) | Err(OauthError::ExpiredToken(_)) => {}
         _ => {}
     }
+    Ok(())
+}
+
+async fn authorization_code_snippet(code: String) -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new()?;
+    let redirect_uri = "http://127.0.0.1:8765/callback";
+    let pkce = client.oauth().create_pkce()?;
+
+    let opts = AuthorizationUrlOptions::new().scope("apikeys.use").state("your-state");
+    let url = client.oauth().authorization_url_with(
+        "your-client-id",
+        redirect_uri,
+        &pkce.challenge,
+        opts,
+    )?;
+    // Open url in the browser. Its redirect to redirect_uri carries code and state.
+    let token = client
+        .oauth()
+        .exchange_authorization_code("your-client-id", &code, &pkce.verifier, redirect_uri)
+        .await?;
     Ok(())
 }
 

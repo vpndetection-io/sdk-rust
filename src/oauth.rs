@@ -1,12 +1,15 @@
-//! Signing a person in on their own machine with the OAuth device flow, so a
-//! program can be handed one of their API keys instead of asking them to paste
-//! it.
+//! Signing a person in with OAuth, so a program can be handed one of their API
+//! keys instead of asking them to paste it: the device flow on their own
+//! machine, or the authorization code flow where an app can take a browser
+//! redirect.
 
+use std::fmt::Write as _;
 use std::future::Future;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::client::{Client, with_retry};
 use crate::error::{Error, ErrorKind, kind_for_status};
@@ -14,19 +17,24 @@ use crate::transport::Answer;
 
 const METADATA_PATH: &str = "/.well-known/oauth-authorization-server";
 const DEVICE_AUTHORIZATION_PATH: &str = "/oauth/device_authorization";
+const AUTHORIZE_PATH: &str = "/oauth/authorize";
 const TOKEN_PATH: &str = "/oauth/token";
 const REVOKE_PATH: &str = "/oauth/revoke";
 const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+/// The only PKCE method the server accepts.
+const PKCE_METHOD: &str = "S256";
 /// RFC 8628's default, for a device authorization whose interval is below 1.
 const DEFAULT_POLL_INTERVAL: i64 = 5;
 const SLOW_DOWN_STEP: i64 = 5;
 
-/// The OAuth authorization server behind the API: the device flow, token
-/// refresh and revocation.
+/// The OAuth authorization server behind the API: the device flow, the
+/// authorization code flow with PKCE, token refresh and revocation.
 ///
 /// Every call takes a client ID, which is issued on request from
-/// support@vpndetection.io. None of these requests carries the client's API
-/// key, and none needs one, so a client built without a key works the same.
+/// support@vpndetection.io, or for the authorization code flow is the https
+/// URL of a client metadata document the app serves. None of these requests
+/// carries the client's API key, and none needs one, so a client built without
+/// a key works the same.
 ///
 /// Reached through [`Client::oauth`].
 #[derive(Debug, Clone, Copy)]
@@ -178,6 +186,119 @@ impl<'a> OauthApi<'a> {
         .await
     }
 
+    /// The URL to open in the person's browser for the authorization code
+    /// flow, from a [`Pkce::challenge`]. Makes no request. Once they decide,
+    /// the server redirects to `redirect_uri` with a `code` for
+    /// [`OauthApi::exchange_authorization_code`], or with an `error`.
+    ///
+    /// An empty argument is refused as a bad request.
+    pub fn authorization_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        code_challenge: &str,
+    ) -> Result<String, OauthError> {
+        self.authorization_url_with(
+            client_id,
+            redirect_uri,
+            code_challenge,
+            AuthorizationUrlOptions::new(),
+        )
+    }
+
+    /// [`OauthApi::authorization_url`], asking for a scope or a resource, or
+    /// carrying a state the redirect brings back.
+    pub fn authorization_url_with(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        code_challenge: &str,
+        opts: AuthorizationUrlOptions,
+    ) -> Result<String, OauthError> {
+        let required = [
+            ("client_id", client_id),
+            ("redirect_uri", redirect_uri),
+            ("code_challenge", code_challenge),
+        ];
+        if let Some((name, _)) = required.iter().find(|(_, value)| value.is_empty()) {
+            return Err(Error::Config(format!("{name} must not be empty")).into());
+        }
+        let mut params = vec![("response_type", "code")];
+        params.extend(required);
+        params.push(("code_challenge_method", PKCE_METHOD));
+        for (name, value) in
+            [("scope", &opts.scope), ("state", &opts.state), ("resource", &opts.resource)]
+        {
+            if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
+                params.push((name, value));
+            }
+        }
+        let mut url = format!("{}{AUTHORIZE_PATH}", self.client.transport().base_url());
+        for (i, (name, value)) in params.iter().enumerate() {
+            url.push(if i == 0 { '?' } else { '&' });
+            url.push_str(name);
+            url.push('=');
+            percent_encode(&mut url, value);
+        }
+        Ok(url)
+    }
+
+    /// Exchanges the `code` a sign-in's redirect brought back for tokens.
+    /// `code_verifier` is the [`Pkce::verifier`] whose challenge went into the
+    /// authorization URL, and `redirect_uri` that URL's, exactly.
+    ///
+    /// Never retried: the server spends the code on first read, before it
+    /// checks the verifier, so a retry could only be refused.
+    pub async fn exchange_authorization_code(
+        &self,
+        client_id: &str,
+        code: &str,
+        code_verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<TokenResponse, OauthError> {
+        let opts = OauthOptions::new();
+        self.exchange_authorization_code_with(client_id, code, code_verifier, redirect_uri, opts)
+            .await
+    }
+
+    /// [`OauthApi::exchange_authorization_code`], with this call's own timeout.
+    pub async fn exchange_authorization_code_with(
+        &self,
+        client_id: &str,
+        code: &str,
+        code_verifier: &str,
+        redirect_uri: &str,
+        opts: OauthOptions,
+    ) -> Result<TokenResponse, OauthError> {
+        let form = [
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("client_id", client_id),
+            ("code_verifier", code_verifier),
+        ];
+        self.exchange(&form, opts).await
+    }
+
+    /// A fresh PKCE pair for one sign-in: 32 bytes from the system's secure
+    /// random source as the verifier, with its challenge. Fails only when that
+    /// source does, as an [`ErrorKind::Io`] error.
+    pub fn create_pkce(&self) -> Result<Pkce, OauthError> {
+        let mut bytes = [0u8; 32];
+        getrandom::fill(&mut bytes).map_err(|e| {
+            Error::Io(std::io::Error::other(format!("the secure random source failed: {e}")))
+        })?;
+        let verifier = base64url(&bytes);
+        let challenge = challenge_for(&verifier);
+        Ok(Pkce { verifier, challenge, method: PKCE_METHOD.to_owned() })
+    }
+
+    /// The `S256` challenge for a PKCE verifier: its SHA-256, as unpadded
+    /// base64url.
+    pub fn pkce_challenge(&self, verifier: &str) -> String {
+        challenge_for(verifier)
+    }
+
     /// Waits for the person to approve a device sign-in, and returns its tokens.
     ///
     /// Before EVERY request, the first included, it sleeps
@@ -319,6 +440,63 @@ impl DeviceAuthorizationOptions {
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
+    }
+}
+
+/// What [`OauthApi::authorization_url_with`] asks for. A value left unset, or
+/// set empty, is left out of the URL rather than sent empty.
+#[derive(Debug, Clone, Default)]
+pub struct AuthorizationUrlOptions {
+    scope: Option<String>,
+    state: Option<String>,
+    resource: Option<String>,
+}
+
+impl AuthorizationUrlOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The scopes to ask for, space-delimited, for example `apikeys.use`.
+    pub fn scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
+    }
+
+    /// A value of your own that the redirect brings back as it was sent.
+    /// Check it before exchanging the code.
+    pub fn state(mut self, state: impl Into<String>) -> Self {
+        self.state = Some(state.into());
+        self
+    }
+
+    /// The API the tokens are for (RFC 8707).
+    pub fn resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource = Some(resource.into());
+        self
+    }
+}
+
+/// One sign-in's PKCE pair, from [`OauthApi::create_pkce`]: `challenge` goes
+/// into the authorization URL, `verifier` only to the exchange. `Debug` leaves
+/// the verifier out.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Pkce {
+    /// 32 random bytes as 43 characters of unpadded base64url.
+    pub verifier: String,
+    /// The verifier's SHA-256, as unpadded base64url.
+    pub challenge: String,
+    /// `S256`, the only method the server accepts.
+    pub method: String,
+}
+
+impl std::fmt::Debug for Pkce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pkce")
+            .field("challenge", &self.challenge)
+            .field("method", &self.method)
+            .finish_non_exhaustive()
     }
 }
 
@@ -558,6 +736,36 @@ impl PollClock for TokioClock {
 
 fn seconds(n: i64) -> Duration {
     Duration::from_secs(u64::try_from(n).unwrap_or(0))
+}
+
+fn challenge_for(verifier: &str) -> String {
+    base64url(Sha256::digest(verifier.as_bytes()).as_slice())
+}
+
+/// Unpadded base64url (RFC 4648 section 5).
+fn base64url(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n =
+            chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+        }
+    }
+    out
+}
+
+/// Every byte of the value's UTF-8 as `%XX` but `A-Z a-z 0-9 - . _ ~`, so a
+/// space is `%20` and never `+`.
+fn percent_encode(out: &mut String, value: &str) {
+    for &byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
 }
 
 /// A 2xx decoded into `T`, where a body that does not parse or lacks a
