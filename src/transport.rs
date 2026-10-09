@@ -67,6 +67,11 @@ impl Transport {
     /// whole file to hand back a link. [`crate::ClientBuilder`] builds its client
     /// with `redirect::Policy::none()` for exactly this; a caller-supplied client
     /// that follows redirects is caught here rather than silently downloading.
+    ///
+    /// Any other 2xx is an answer this call cannot read, such as a proxy's page
+    /// served as a 200, and is the retried server error every other call's is.
+    /// Read as a followed redirect, it was a `bad_request` sent once that told
+    /// the caller to fix a client they never passed (5.4.0, measured 2026-10-09).
     pub(crate) async fn get_redirect(
         &self,
         path: &str,
@@ -90,17 +95,31 @@ impl Transport {
                 status,
                 retry_after: None,
             }),
-            (200..300, _) => Err(Error::Config(
+            (200..300, _) if !self.answered_from(path, &response) => Err(Error::Config(
                 "the download redirect was followed, so its Location is gone: build the \
                  reqwest::Client you passed to ClientBuilder::http_client with \
                  reqwest::redirect::Policy::none()"
                     .to_owned(),
             )),
+            (200..300, _) => Err(Error::Api {
+                kind: ErrorKind::ServerError,
+                message: "expected a redirect to object storage".to_owned(),
+                status,
+                retry_after: None,
+            }),
             _ => {
                 let body = response.text().await?;
                 Err(Error::from_response(status, retry_after, &body))
             }
         }
+    }
+
+    /// Whether `response` came from the URL sent for `path` rather than from
+    /// wherever a redirect led, which only a client that follows them reaches.
+    fn answered_from(&self, path: &str, response: &reqwest::Response) -> bool {
+        let mut url = response.url().clone();
+        url.set_query(None);
+        reqwest::Url::parse(&format!("{}{}", self.base_url, path)).is_ok_and(|sent| sent == url)
     }
 
     /// A GET to an absolute URL carrying NO credential, for a presigned link

@@ -379,6 +379,82 @@ async fn a_redirect_following_http_client_is_refused_not_obeyed() {
     assert!(err.message().contains("redirect::Policy::none"), "{}", err.message());
 }
 
+/// A 2xx a call cannot read is no answer: the server_error an outage is,
+/// carrying the status, and retried like one. download_url read every 2xx as a
+/// redirect a caller's client had followed, a bad_request sent once (5.4.0,
+/// measured 2026-10-09), and download_bytes, which asks for the link first,
+/// inherited it.
+#[tokio::test]
+async fn an_answer_a_call_cannot_read_is_a_retried_server_error() {
+    const BODIES: [(&str, &str); 9] = [
+        ("an HTML page", "<html>gateway</html>"),
+        ("a cut-off body", r#"{"ip":"9.9.9.9","is_v"#),
+        ("an empty body", ""),
+        ("an array", "[]"),
+        ("a string", r#""x""#),
+        ("null", "null"),
+        ("an empty object", "{}"),
+        (
+            "members of the wrong type",
+            r#"{"ip":9,"is_vpn":"yes","results":[],"databases":{},"checksums":[],"downloads":"x","id":5,"org_id":5}"#,
+        ),
+        (
+            "entries without their members",
+            r#"{"ip":"9.9.9.9","results":{"9.9.9.9":{}},"errors":{},"databases":[{}],"checksums":{},"downloads":[{}],"id":"x","format":"csvgz","apikey":{}}"#,
+        ),
+    ];
+    const CALLS: [(&str, &str); 10] = [
+        ("lookup", "/9.9.9.9"),
+        ("my_ip", "/myip"),
+        ("my_entitlement", "/api/v1/entitlement"),
+        ("lookup_batch", "/batch"),
+        ("list", "/api/v1/database/list"),
+        ("metadata", "/api/v1/database/metadata"),
+        ("checksums", "/api/v1/database/checksum"),
+        ("downloads", "/api/v1/database/downloads"),
+        ("download_url", "/api/v1/database/download"),
+        ("download_bytes", "/api/v1/database/download"),
+    ];
+    // Each case waits out two backoffs, so they run side by side.
+    let mut cases = tokio::task::JoinSet::new();
+    for (call, path) in CALLS {
+        for (name, body) in BODIES {
+            cases.spawn(async move {
+                let stub = Stub::start([]).await;
+                stub.sequence(path, [Route::ok(body), Route::ok(body), Route::ok(body)]);
+                let client =
+                    stub.client().api_key("key").no_cache().retries(2).build().expect("build");
+                let db = client.database();
+                let outcome = match call {
+                    "lookup" => client.lookup("9.9.9.9").await.map(drop),
+                    "my_ip" => client.my_ip().await.map(drop),
+                    "my_entitlement" => client.my_entitlement().await.map(drop),
+                    "lookup_batch" => {
+                        let mut answers =
+                            client.lookup_batch(["9.9.9.9"], BatchOptions::new()).await;
+                        answers.swap_remove("9.9.9.9").expect("answered").map(drop)
+                    }
+                    "list" => db.list().await.map(drop),
+                    "metadata" => db.metadata("vpn_ip_v1").await.map(drop),
+                    "checksums" => db.checksums("vpn_ip_v1", DatabaseFormat::Csvgz).await.map(drop),
+                    "downloads" => db.downloads(None).await.map(drop),
+                    "download_url" => {
+                        db.download_url("vpn_ip_v1", DatabaseFormat::Csvgz).await.map(drop)
+                    }
+                    _ => db.download_bytes("vpn_ip_v1", DatabaseFormat::Csvgz).await.map(drop),
+                };
+                let Err(err) = outcome else { panic!("{call}, {name}: returned an answer") };
+                assert_eq!(err.kind(), ErrorKind::ServerError, "{call}, {name}: {err}");
+                assert_eq!(err.status(), Some(200), "{call}, {name}: the status");
+                assert_eq!(stub.count(), 3, "{call}, {name}: retried like an outage");
+            });
+        }
+    }
+    while let Some(case) = cases.join_next().await {
+        case.expect("case");
+    }
+}
+
 /// Which digests a dataset publishes is the API's choice, so the whole set comes
 /// back. They nest under `checksums`, and reading a top-level `sha256` is how the
 /// Node SDK shipped this broken in 1.0.x.
