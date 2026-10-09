@@ -284,6 +284,51 @@ async fn a_rate_limit_is_retried_after_the_server_supplied_wait() {
     assert!(start.elapsed() >= Duration::from_secs(1), "waited {:?}", start.elapsed());
 }
 
+/// An HTTP date comes in three forms, and RFC 9110 has a recipient read all
+/// three: RFC 850's and asctime's were read as no date at all, so a throttle
+/// dated in either was a spent quota, and `+1` was read as a second (5.4.0,
+/// measured 2026-10-09). What only a general date or number parser would read
+/// stays a spent quota, from the API and from object storage alike.
+#[tokio::test]
+async fn a_retry_after_is_seconds_or_an_http_date_and_nothing_else() {
+    // Past dates, so each wait is zero.
+    let throttles = [
+        "0",
+        "Sun, 06 Nov 1994 08:49:37 GMT",
+        "Sunday, 06-Nov-94 08:49:37 GMT",
+        "Sun Nov  6 08:49:37 1994",
+    ];
+    let spent = ["+1", "-1", "x", "tomorrow", "+1 day", "1e400", "0x10", "1_0", "1e3", "1.5"];
+    for (value, want, requests) in throttles
+        .into_iter()
+        .map(|value| (value, ErrorKind::RateLimited, 2))
+        .chain(spent.into_iter().map(|value| (value, ErrorKind::QuotaExceeded, 1)))
+    {
+        let stub = Stub::start([]).await;
+        let throttled = Route::json(429, r#"{"error":"slow down"}"#).header("Retry-After", value);
+        stub.sequence("/45.83.91.1", [throttled.clone(), throttled]);
+        let client = stub.client().no_cache().retries(1).build().expect("build");
+        let err = client.lookup("45.83.91.1").await.expect_err("still throttled");
+        assert_eq!(err.kind(), want, "Retry-After {value}: {err}");
+        assert_eq!(stub.count(), requests, "Retry-After {value}");
+
+        let stub = Stub::start([]).await;
+        let object = format!("{}/object", stub.base_url);
+        stub.route("/api/v1/database/download", Route::json(302, "").header("Location", &object));
+        let throttled = Route::json(429, "").header("Retry-After", value);
+        stub.sequence("/object", [throttled.clone(), throttled]);
+        let client = stub.client().retries(1).build().expect("build");
+        let database = client.database();
+        let err = database
+            .download_bytes("vpn_ip", DatabaseFormat::Csvgz)
+            .await
+            .expect_err("still throttled");
+        assert_eq!(err.kind(), want, "object storage's Retry-After {value}: {err}");
+        let tries = stub.calls().iter().filter(|path| *path == "/object").count();
+        assert_eq!(tries, requests, "object storage's Retry-After {value}");
+    }
+}
+
 #[tokio::test]
 async fn is_bogon_is_on_the_client_and_agrees_with_the_standalone_function() {
     let stub = Stub::start([]).await;
