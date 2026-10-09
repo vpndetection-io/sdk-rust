@@ -2,6 +2,13 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.4.1 - 2026-10-09
+
+### Fixes
+
+- Retry an unreadable download link answer, as a server_error ([`d6d9bf3`](https://github.com/vpndetection-io/sdk-rust/commit/d6d9bf3eafd6085eb2e12388249e74aeb67d9c7f))
+- Read a Retry-After as digits or an HTTP date in any of its three forms ([`2617dc3`](https://github.com/vpndetection-io/sdk-rust/commit/2617dc39f0181092cd5c4d124b7eeadd9c64d00c))
+
 ## 5.4.0 - 2026-10-05
 
 ### Features
