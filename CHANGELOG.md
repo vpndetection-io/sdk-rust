@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.4.2 - 2026-10-10
+
+### Fixes
+
+- Re-pin the spec to 2026.10.09: rotating a key needs apikeys.reveal ([`28af34c`](https://github.com/vpndetection-io/sdk-rust/commit/28af34cdc4c3cf7e537420c0a5a5320b98f1416b))
+
 ## 5.4.1 - 2026-10-09
 
 ### Fixes
