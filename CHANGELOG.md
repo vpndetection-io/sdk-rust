@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.4.3 - 2026-10-16
+
+### Fixes
+
+- Re-pin the spec to 2026.10.15: descriptions in US spelling ([`07f521e`](https://github.com/vpndetection-io/sdk-rust/commit/07f521e51db3ebd00ab20e6e5ea9640cda89b18c))
+
 ## 5.4.2 - 2026-10-10
 
 ### Fixes
