@@ -128,6 +128,7 @@ pub fn metadata_member(metadata: &OauthMetadata, name: &str) -> Option<Value> {
         "client_id_metadata_document_supported" => {
             m.client_id_metadata_document_supported.map(|v| json!(v))
         }
+        "registration_endpoint" => m.registration_endpoint.as_ref().map(|v| json!(v)),
         "service_documentation" => m.service_documentation.as_ref().map(|v| json!(v)),
         other => panic!("OauthMetadata has no member {other}"),
     }

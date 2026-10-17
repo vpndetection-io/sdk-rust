@@ -526,6 +526,8 @@ pub struct OauthMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id_metadata_document_supported: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration_endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_documentation: Option<String>,
 }
 
