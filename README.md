@@ -43,7 +43,7 @@ println!("{}", result.is_vpn);                  // true
 println!("{:?}", result.is_hosting);            // Some(true)
 
 if let Some(vpn) = result.vpn.as_deref() {
-    println!("{:?}", vpn.provider);             // Some("mullvad")
+    println!("{:?}", vpn.provider);             // Some("nordvpn")
 }
 ```
 
