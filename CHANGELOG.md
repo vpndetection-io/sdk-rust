@@ -2,6 +2,16 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.5.0 - 2026-10-17
+
+### Features
+
+- Re-pin the spec to 2026.10.16: dynamic client registration ([`d7341e9`](https://github.com/vpndetection-io/sdk-rust/commit/d7341e9832ce82450fba334e37586d4629ab25d3))
+
+### Fixes
+
+- Build beside reqwest 0.13.2 and newer ([`f513263`](https://github.com/vpndetection-io/sdk-rust/commit/f513263e32c2ceb1115a1643e5a949df68d5a8b8))
+
 ## 5.4.3 - 2026-10-16
 
 ### Fixes
