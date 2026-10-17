@@ -21,7 +21,7 @@ vpndetection = "^5.2"
 # client from, and sha2 is the digest the download half checks the transferred
 # bytes against. They are regular dependencies rather than dev ones because the
 # fixtures live in a lib target, which cannot see dev-dependencies.
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
