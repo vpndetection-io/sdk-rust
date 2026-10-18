@@ -116,6 +116,7 @@ async fn a_lookup_preserves_absent_versus_false_across_every_plan_shape() {
         assert_object(&wire, "vpn", case.expect.vpn.as_ref());
         assert_object(&wire, "hosting", case.expect.hosting.as_ref());
         assert_object(&wire, "dcproxy", case.expect.dcproxy.as_ref());
+        assert_object(&wire, "pubproxy", case.expect.pubproxy.as_ref());
     }
 }
 

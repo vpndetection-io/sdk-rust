@@ -61,6 +61,7 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             is_resproxy: Some(false),
             is_dcproxy: Some(false),
             is_mobproxy: Some(false),
+            is_pubproxy: Some(false),
             vpn: Some(Box::default()),
             hosting: Some(Box::default()),
             relay: Some(Box::default()),
@@ -69,6 +70,7 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             resproxy: Some(Box::default()),
             dcproxy: Some(Box::default()),
             mobproxy: Some(Box::default()),
+            pubproxy: Some(Box::default()),
         },
     }
 }

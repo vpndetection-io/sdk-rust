@@ -82,6 +82,7 @@ pub struct LookupExpect {
     pub vpn: Option<Value>,
     pub hosting: Option<Value>,
     pub dcproxy: Option<Value>,
+    pub pubproxy: Option<Value>,
 }
 
 #[derive(Deserialize)]

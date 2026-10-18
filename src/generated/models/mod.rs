@@ -78,6 +78,8 @@ pub mod oauth_metadata;
 pub use self::oauth_metadata::OauthMetadata;
 pub mod proxy_detail;
 pub use self::proxy_detail::ProxyDetail;
+pub mod pubproxy_detail;
+pub use self::pubproxy_detail::PubproxyDetail;
 pub mod standing;
 pub use self::standing::Standing;
 pub mod token_response;

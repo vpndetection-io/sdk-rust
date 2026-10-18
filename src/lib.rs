@@ -82,7 +82,7 @@ pub use oauth::{
 pub use generated::models::download::Outcome as DownloadOutcome;
 pub use generated::models::{
     ClassDetail, Database, DatabaseFormatSize, DatabaseMetadata, DatabaseMetadataColumn,
-    DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, VpnDetail,
+    DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, PubproxyDetail, VpnDetail,
 };
 pub use generated::models::{DatabaseFormat, Standing};
 // `license_type` is a NULLABLE enum, and naming one in the spec makes

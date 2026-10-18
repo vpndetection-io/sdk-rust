@@ -77,4 +77,8 @@ impl Lookup {
     pub fn is_mobproxy_or_false(&self) -> bool {
         self.is_mobproxy.unwrap_or(false)
     }
+
+    pub fn is_pubproxy_or_false(&self) -> bool {
+        self.is_pubproxy.unwrap_or(false)
+    }
 }
