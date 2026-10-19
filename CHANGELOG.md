@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.7.0 - 2026-10-19
+
+### Features
+
+- Re-pin the spec to 2026.10.19: num_ports and num_proxies in the pubproxy detail ([`be9bdd4`](https://github.com/vpndetection-io/sdk-rust/commit/be9bdd4db03b20f08da5f541488aa92a38c8b850))
+
 ## 5.6.0 - 2026-10-18
 
 ### Features
