@@ -9,7 +9,9 @@
 // The generator's REQUEST functions are deliberately not taken; scripts/
 // generate.sh says why, and transport.rs is what replaces them.
 //
-// Generated code is held to the generator's standards, not ours.
-#![allow(clippy::all, dead_code, unused_imports)]
+// Generated code is held to the generator's standards, not ours. That includes
+// rustdoc's: a description the spec gives may carry a bare URL (`open`'s does,
+// 2026.10.20), which the generator copies into the doc comment as written.
+#![allow(clippy::all, dead_code, unused_imports, rustdoc::bare_urls)]
 
 pub mod models;
