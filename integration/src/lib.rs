@@ -27,17 +27,17 @@ pub const PROBE: &str = "45.83.91.1";
 const RUNG_COUNT: usize = 5;
 
 /// Ascending, one rung per plan tier. `widens` is what a rung promises against
-/// whichever observable rung sits below it: the first paid tier serves strictly
-/// more than a free key; every paid plan answers the same fields, so a higher
-/// paid tier only keeps what the one under it serves, and a free key keeps what
-/// no key does.
+/// whichever observable rung sits below it: a free key serves strictly more
+/// than no key, and the first paid tier strictly more than a free key; every
+/// paid plan answers the same fields, so a higher paid tier only keeps what the
+/// one under it serves.
 ///
 /// Field COUNTS are deliberately absent. Pinning "starter answers seven fields"
 /// turns a pricing change into a red SDK build; the relation between the tiers
 /// is what the client actually has to keep.
 pub const RUNGS: [Rung; RUNG_COUNT] = [
     Rung { tier: "unauth", secret: None, widens: false },
-    Rung { tier: "free", secret: Some("VPNDETECTION_STAGING_KEY_FREE"), widens: false },
+    Rung { tier: "free", secret: Some("VPNDETECTION_STAGING_KEY_FREE"), widens: true },
     Rung { tier: "starter", secret: Some("VPNDETECTION_STAGING_KEY_STARTER"), widens: true },
     Rung { tier: "scale", secret: Some("VPNDETECTION_STAGING_KEY_SCALE"), widens: false },
     Rung { tier: "max", secret: Some("VPNDETECTION_STAGING_KEY_MAX"), widens: false },
