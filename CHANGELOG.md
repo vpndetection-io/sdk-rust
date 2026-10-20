@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.8.0 - 2026-10-20
+
+### Features
+
+- Re-pin the spec to 2026.10.20: location and asn on every keyed lookup ([`af7637f`](https://github.com/vpndetection-io/sdk-rust/commit/af7637f8f2e2dc8a5311ae230d7afc27200ef964))
+
 ## 5.7.0 - 2026-10-19
 
 ### Features
