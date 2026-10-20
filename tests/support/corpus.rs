@@ -58,6 +58,8 @@ pub struct BogonResponse {
     pub flags_false: Vec<String>,
     #[serde(rename = "emptyObjects")]
     pub empty_objects: Vec<String>,
+    pub location: Value,
+    pub asn: Value,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +85,8 @@ pub struct LookupExpect {
     pub hosting: Option<Value>,
     pub dcproxy: Option<Value>,
     pub pubproxy: Option<Value>,
+    pub location: Option<Value>,
+    pub asn: Option<Value>,
 }
 
 #[derive(Deserialize)]

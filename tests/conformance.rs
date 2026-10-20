@@ -71,7 +71,7 @@ async fn an_ipv4_mapped_address_is_the_ipv4_address_it_carries() {
 }
 
 #[tokio::test]
-async fn a_bogon_is_answered_locally_in_the_full_max_shape() {
+async fn a_bogon_is_answered_locally_in_the_widest_shape() {
     let data = corpus::load();
     let stub = Stub::start([]).await;
     let client = stub.client().build().expect("build");
@@ -87,6 +87,8 @@ async fn a_bogon_is_answered_locally_in_the_full_max_shape() {
     for name in &data.bogon_response.empty_objects {
         assert_empty_object(&wire, name);
     }
+    assert_object(&wire, "location", Some(&data.bogon_response.location));
+    assert_object(&wire, "asn", Some(&data.bogon_response.asn));
     assert_eq!(stub.count(), 0, "a bogon must not reach the network");
 }
 
@@ -117,6 +119,8 @@ async fn a_lookup_preserves_absent_versus_false_across_every_plan_shape() {
         assert_object(&wire, "hosting", case.expect.hosting.as_ref());
         assert_object(&wire, "dcproxy", case.expect.dcproxy.as_ref());
         assert_object(&wire, "pubproxy", case.expect.pubproxy.as_ref());
+        assert_object(&wire, "location", case.expect.location.as_ref());
+        assert_object(&wire, "asn", case.expect.asn.as_ref());
     }
 }
 
