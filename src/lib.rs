@@ -2,9 +2,9 @@
 //! API: anonymity detection covering VPNs, residential proxies, Tor nodes,
 //! hosting servers, CDNs and relays.
 //!
-//! Start with [`Client::new`] and [`Client::lookup`]. No API key is needed: the
-//! free tier answers `ip` and `is_vpn` and allows 1000 requests per day per
-//! source address.
+//! Start with [`Client::new`] and [`Client::lookup`]. No API key is needed:
+//! without one, a lookup answers `ip` and `is_vpn`, up to 1000 a day per source
+//! address.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), vpndetection::Error> {

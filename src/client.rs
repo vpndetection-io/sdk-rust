@@ -67,8 +67,8 @@ struct Inner {
 }
 
 impl Client {
-    /// A client on the free tier, against production. The free tier answers `ip`
-    /// and `is_vpn` and allows 1000 requests per day per source address.
+    /// A client with no API key, against production. Without a key a lookup
+    /// answers `ip` and `is_vpn`, up to 1000 a day per source address.
     pub fn new() -> Result<Self, Error> {
         Self::builder().build()
     }
@@ -418,7 +418,7 @@ impl Client {
     }
 }
 
-/// Builds a [`Client`]. With nothing set it queries production on the free tier.
+/// Builds a [`Client`]. With nothing set it queries production with no API key.
 #[derive(Debug, Default)]
 pub struct ClientBuilder {
     api_key: Option<String>,

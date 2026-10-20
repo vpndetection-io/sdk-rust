@@ -19,6 +19,12 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder().api_key(std::env::var("VPNDETECTION_API_KEY")?).build()?;
     let result = client.lookup("45.83.91.1").await?;
     println!("{}", result.is_vpn);
+    if let Some(location) = result.location.as_deref() {
+        println!("{}", location.country);
+    }
+    if let Some(asn) = result.asn.as_deref() {
+        println!("{}", asn.name);
+    }
     println!("{:?}", result.is_hosting);
     if let Some(vpn) = result.vpn.as_deref() {
         println!("{:?}", vpn.provider);

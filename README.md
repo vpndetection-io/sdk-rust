@@ -18,7 +18,7 @@ Requires Rust 1.85 or newer. Everything is `async` and runs on tokio.
 
 ## Usage
 
-**No API key needed to start.** The free tier answers `ip` and `is_vpn`, and allows 1000 requests per day per source address.
+**No API key needed to start.** Without a key, a lookup answers `ip` and `is_vpn`, up to 1000 a day per source address.
 
 ```rust
 use vpndetection::Client;
@@ -31,7 +31,7 @@ println!("{}", result.is_vpn);   // true
 
 ### With an API key
 
-An API key raises your quota, and raises your features on a paid plan. Create one in the [console](https://app.vpndetection.io), then pass it in:
+A free key adds Tor and relay detection, where the address is and the AS that announces it. Every paid plan answers every field, the same on each, and the plans differ only in how many lookups they include. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -40,10 +40,16 @@ let client = Client::builder()
 
 let result = client.lookup("45.83.91.1").await?;
 println!("{}", result.is_vpn);                  // true
-println!("{:?}", result.is_hosting);            // Some(true)
+if let Some(location) = result.location.as_deref() {
+    println!("{}", location.country);           // the ISO 3166 country code
+}
+if let Some(asn) = result.asn.as_deref() {
+    println!("{}", asn.name);                   // who runs the announcing network
+}
+println!("{:?}", result.is_hosting);            // Some(true), on a paid plan
 
 if let Some(vpn) = result.vpn.as_deref() {
-    println!("{:?}", vpn.provider);             // Some("nordvpn")
+    println!("{:?}", vpn.provider);             // Some("nordvpn"), on a paid plan
 }
 ```
 
@@ -260,7 +266,7 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-Every field beyond `ip` and `is_vpn` is an `Option`, because your plan decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+Without a key only `ip` and `is_vpn` come back, and a free key adds Tor, relay, `location` and `asn`. Every field beyond `ip` and `is_vpn` is an `Option`, because your plan decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag
