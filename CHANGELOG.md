@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.0 - 2026-10-21
+
+### Features
+
+- Add oauth().register, for RFC 7591 dynamic client registration ([`e31ec84`](https://github.com/vpndetection-io/sdk-rust/commit/e31ec84eaccaadb1d439d7d3859516f40078fb30))
+
 ## 5.8.0 - 2026-10-20
 
 ### Features
