@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 
 use super::corpus::{OauthExpect, Served};
 use super::{Call, Route};
-use vpndetection::{DeviceAuthorization, OauthError, OauthMetadata, TokenResponse};
+use vpndetection::{
+    ClientRegistration, DeviceAuthorization, OauthError, OauthMetadata, TokenResponse,
+};
 
 pub fn route(served: &Served) -> Route {
     Route::json(served.status, served.text())
@@ -100,6 +102,20 @@ pub fn device_member(device: &DeviceAuthorization, name: &str) -> Option<Value> 
         "expires_in" => Some(json!(device.expires_in)),
         "interval" => Some(json!(device.interval)),
         other => panic!("DeviceAuthorization has no member {other}"),
+    }
+}
+
+pub fn registration_member(r: &ClientRegistration, name: &str) -> Option<Value> {
+    match name {
+        "client_id" => Some(json!(r.client_id)),
+        "client_id_issued_at" => Some(json!(r.client_id_issued_at)),
+        "client_name" => Some(json!(r.client_name)),
+        "redirect_uris" => Some(json!(r.redirect_uris)),
+        "grant_types" => r.grant_types.as_ref().map(|v| json!(v)),
+        "response_types" => r.response_types.as_ref().map(|v| json!(v)),
+        "token_endpoint_auth_method" => Some(json!(r.token_endpoint_auth_method)),
+        "scope" => r.scope.as_ref().map(|v| json!(v)),
+        other => panic!("the corpus names a member ClientRegistration lacks: {other}"),
     }
 }
 

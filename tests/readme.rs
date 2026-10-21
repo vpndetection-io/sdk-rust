@@ -8,7 +8,7 @@
 use std::time::Duration;
 use vpndetection::{
     AuthorizationUrlOptions, BatchOptions, Client, DatabaseFormat, DeviceAuthorizationOptions,
-    ErrorKind, OauthError,
+    ErrorKind, OauthError, RegisterOptions,
 };
 
 async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
@@ -132,6 +132,14 @@ async fn authorization_code_snippet(code: String) -> Result<(), Box<dyn std::err
         .oauth()
         .exchange_authorization_code("your-client-id", &code, &pkce.verifier, redirect_uri)
         .await?;
+    Ok(())
+}
+
+async fn register_snippet() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new()?;
+    let opts = RegisterOptions::new().client_name("Your App");
+    let registration =
+        client.oauth().register_with(&["http://127.0.0.1:8765/callback"], opts).await?;
     Ok(())
 }
 

@@ -10,12 +10,13 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use support::corpus::{self, OauthArgs};
 use support::oauth::{
-    assert_failure, assert_members, device_member, form, metadata_member, route, token_member,
+    assert_failure, assert_members, device_member, form, metadata_member, registration_member,
+    route, token_member,
 };
 use support::{Call, Route, Stub};
 use vpndetection::{
     AuthorizationUrlOptions, Client, DeviceAuthorization, DeviceAuthorizationOptions, ErrorKind,
-    OauthError, OauthOptions,
+    OauthError, OauthOptions, RegisterOptions,
 };
 
 const CLIENT_ID: &str = "vpndetection-cli";
@@ -24,7 +25,9 @@ const EVERY_REQUIRED_MEMBER: &str = r#"{"issuer":"https://api.example.test",
     "authorization_endpoint":"https://api.example.test/oauth/authorize",
     "token_endpoint":"https://api.example.test/oauth/token","device_code":"mo_dc_x",
     "user_code":"BCDF-GHJK","verification_uri":"https://app.example.test/device",
-    "expires_in":900,"interval":1,"access_token":"mo_at_x","token_type":"Bearer"}"#;
+    "expires_in":900,"interval":1,"access_token":"mo_at_x","token_type":"Bearer",
+    "client_id":"dcr_x","client_id_issued_at":1792304178,"client_name":"Example CLI",
+    "redirect_uris":["http://127.0.0.1/cb"],"token_endpoint_auth_method":"none"}"#;
 const STALL: Duration = Duration::from_secs(60);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 const CALL_TIMEOUT: Duration = Duration::from_millis(150);
@@ -52,6 +55,10 @@ async fn no_oauth_request_carries_the_api_key() {
         .exchange_authorization_code(CLIENT_ID, "mo_ac_x", "verifier", "http://127.0.0.1:8765/cb")
         .await
         .expect("exchange authorization code");
+    oauth
+        .register_with(&["http://127.0.0.1/cb"], RegisterOptions::new().client_name("Example CLI"))
+        .await
+        .expect("register");
     let url = oauth
         .authorization_url_with(
             CLIENT_ID,
@@ -71,7 +78,7 @@ async fn no_oauth_request_carries_the_api_key() {
     }
 
     let requests = stub.requests();
-    assert_eq!(requests.len(), 7, "every operation reached the stub once");
+    assert_eq!(requests.len(), 8, "every operation reached the stub once");
     for call in &requests {
         for name in &data.no_credential.forbidden_headers {
             assert_eq!(call.header(name), None, "{}: carried {name}", call.path);
@@ -176,6 +183,76 @@ async fn only_the_calls_that_consume_nothing_are_retried() {
         assert_eq!(Some(stub.count()), case.expect.requests, "{}: requests", case.name);
         match outcome {
             Ok(()) => assert_eq!(case.expect.outcome, "ok", "{}: succeeded", case.name),
+            Err(err) => assert_failure(&case.name, &err, &case.expect),
+        }
+    }
+}
+
+#[tokio::test]
+async fn register_posts_exactly_its_json_body_and_refuses_an_empty_uri_unsent() {
+    let data = corpus::load().oauth.register;
+    for case in &data.bodies.cases {
+        let stub = Stub::start(every_path(Route::json(201, EVERY_REQUIRED_MEMBER))).await;
+        let base = format!("{}///", stub.base_url);
+        let client = Client::builder().base_url(base).build().expect("build");
+        let mut opts = RegisterOptions::new().timeout(CLIENT_TIMEOUT);
+        if let Some(name) = &case.args.client_name {
+            opts = opts.client_name(name);
+        }
+        client.oauth().register_with(&case.args.redirect_uris, opts).await.expect(&case.name);
+
+        let requests = stub.requests();
+        assert_eq!(requests.len(), 1, "{}", case.name);
+        assert_sent_to(&case.name, &requests[0], &data.endpoint.method, &data.endpoint.path);
+        let content_type = requests[0].header("content-type").unwrap_or_default();
+        assert!(content_type.starts_with(&data.content_type), "{}: {content_type}", case.name);
+        let sent: Value = serde_json::from_str(&requests[0].body).expect("the body is JSON");
+        assert_eq!(sent, case.body, "{}", case.name);
+    }
+    for case in &data.refusals.cases {
+        let stub = Stub::start(every_path(Route::json(201, EVERY_REQUIRED_MEMBER))).await;
+        let client = stub.client().build().expect("build");
+        let err = client.oauth().register(&case.args.redirect_uris).await.expect_err(&case.name);
+        assert!(matches!(err, OauthError::Client(_)), "{}: {err}", case.name);
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{}", case.name);
+        assert_eq!(stub.count(), 0, "{}: sent", case.name);
+    }
+}
+
+#[tokio::test]
+async fn register_answers_decode_and_anything_unreadable_is_a_server_error() {
+    let data = corpus::load().oauth.register;
+    for case in &data.responses.cases {
+        let client = serving(&case.served).await;
+        let got = client.oauth().register(&["http://127.0.0.1/cb"]).await;
+        let got = got.unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let member = |name: &str| registration_member(&got, name);
+        assert_members(&case.name, member, &case.expect.present, &case.expect.absent);
+    }
+    for served in &data.unreadable.cases {
+        let stub = Stub::start(every_path(route(served))).await;
+        let client = stub.client().retries(0).build().expect("build");
+        let err = client.oauth().register(&["http://127.0.0.1/cb"]).await.expect_err(&served.name);
+        assert!(matches!(err, OauthError::Client(_)), "{}: {err}", served.name);
+        assert_eq!(err.kind(), ErrorKind::ServerError, "{}", served.name);
+        assert_eq!(err.status(), Some(served.status), "{}", served.name);
+        assert_eq!(stub.count(), 1, "{}: requests", served.name);
+    }
+    for case in &data.errors {
+        let client = serving(&case.served).await;
+        let err = client.oauth().register(&["http://127.0.0.1/cb"]).await.expect_err(&case.name);
+        assert_failure(&case.name, &err, &case.expect);
+    }
+    for case in &data.retries {
+        let stub = Stub::start([]).await;
+        stub.sequence(data.endpoint.path.as_str(), case.responses.iter().map(route));
+        let client = stub.client().build().expect("build");
+
+        let outcome = client.oauth().register(&case.args.redirect_uris).await;
+
+        assert_eq!(Some(stub.count()), case.expect.requests, "{}: requests", case.name);
+        match outcome {
+            Ok(_) => assert_eq!(case.expect.outcome, "ok", "{}: succeeded", case.name),
             Err(err) => assert_failure(&case.name, &err, &case.expect),
         }
     }
@@ -396,6 +473,7 @@ fn every_path(route: Route) -> Vec<(String, Route)> {
         "/oauth/device_authorization",
         "/oauth/token",
         "/oauth/revoke",
+        "/oauth/register",
     ]
     .into_iter()
     .map(|path| (path.to_owned(), route.clone()))

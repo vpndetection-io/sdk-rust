@@ -186,6 +186,55 @@ pub struct Oauth {
     pub retries: OauthRetries,
     pub poll: Poll,
     pub deferred: Deferred,
+    pub register: Register,
+}
+
+/// `register`'s vectors, which only a runner that ships it reads.
+#[derive(Deserialize)]
+pub struct Register {
+    pub endpoint: OauthEndpoint,
+    #[serde(rename = "contentType")]
+    pub content_type: String,
+    pub bodies: RegisterCases<RegisterBody>,
+    pub refusals: RegisterCases<RegisterCase>,
+    pub responses: RegisterCases<ResponseCase>,
+    pub unreadable: RegisterCases<Served>,
+    pub retries: Vec<RegisterRetry>,
+    pub errors: Vec<OauthErrorCase>,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterCases<T> {
+    pub cases: Vec<T>,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterArgs {
+    #[serde(rename = "redirectUris")]
+    pub redirect_uris: Vec<String>,
+    #[serde(default, rename = "clientName")]
+    pub client_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterBody {
+    pub name: String,
+    pub args: RegisterArgs,
+    pub body: Value,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterCase {
+    pub name: String,
+    pub args: RegisterArgs,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterRetry {
+    pub name: String,
+    pub args: RegisterArgs,
+    pub responses: Vec<Served>,
+    pub expect: OauthExpect,
 }
 
 #[derive(Deserialize)]

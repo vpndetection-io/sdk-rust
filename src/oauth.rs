@@ -20,6 +20,7 @@ const DEVICE_AUTHORIZATION_PATH: &str = "/oauth/device_authorization";
 const AUTHORIZE_PATH: &str = "/oauth/authorize";
 const TOKEN_PATH: &str = "/oauth/token";
 const REVOKE_PATH: &str = "/oauth/revoke";
+const REGISTER_PATH: &str = "/oauth/register";
 const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 /// The only PKCE method the server accepts.
 const PKCE_METHOD: &str = "S256";
@@ -381,6 +382,52 @@ impl<'a> OauthApi<'a> {
         decode(self.client.transport().post_form(TOKEN_PATH, form, timeout).await?)
     }
 
+    /// Registers a client for the authorization code flow, for an app that
+    /// cannot serve a Client ID Metadata Document, and returns its
+    /// [`ClientRegistration::client_id`].
+    ///
+    /// Each redirect URI must be https on a public host name, or http on a
+    /// loopback address, which then matches on any port; the server refuses
+    /// any other as an [`OauthError::Rejected`] with code
+    /// `invalid_redirect_uri`. Nothing is kept until a person approves the
+    /// client, so registering again costs nothing, and this is retried like any
+    /// read. No redirect URI at all, or an empty one, is refused as a bad
+    /// request before anything is sent.
+    pub async fn register(
+        &self,
+        redirect_uris: &[impl AsRef<str>],
+    ) -> Result<ClientRegistration, OauthError> {
+        self.register_with(redirect_uris, RegisterOptions::new()).await
+    }
+
+    /// [`OauthApi::register`], with a name to show the person, or with this
+    /// call's own timeout.
+    pub async fn register_with(
+        &self,
+        redirect_uris: &[impl AsRef<str>],
+        opts: RegisterOptions,
+    ) -> Result<ClientRegistration, OauthError> {
+        let redirect_uris: Vec<&str> = redirect_uris.iter().map(AsRef::as_ref).collect();
+        if redirect_uris.is_empty() {
+            return Err(Error::Config("redirect_uris must list at least one URI".to_owned()).into());
+        }
+        if let Some(i) = redirect_uris.iter().position(|uri| uri.is_empty()) {
+            return Err(Error::Config(format!("redirect_uris[{i}] must not be empty")).into());
+        }
+        let request = RegistrationRequest {
+            redirect_uris: &redirect_uris,
+            client_name: opts.client_name.as_deref().filter(|name| !name.is_empty()),
+        };
+        let body = serde_json::to_string(&request).expect("a list of strings always serializes");
+        let timeout = self.timeout(opts.timeout)?;
+        let body = &body;
+        with_retry(self.client.retries(), || async move {
+            let transport = self.client.transport();
+            decode(transport.post_json_keyless(REGISTER_PATH, body.clone(), timeout).await?)
+        })
+        .await
+    }
+
     fn timeout(&self, per_call: Option<Duration>) -> Result<Duration, Error> {
         self.client.call_timeout(per_call)
     }
@@ -404,6 +451,41 @@ impl OauthOptions {
         self.timeout = Some(timeout);
         self
     }
+}
+
+/// What [`OauthApi::register_with`] asks for beyond the redirect URIs. A name
+/// left unset, or set empty, is left out of the request.
+#[derive(Debug, Clone, Default)]
+pub struct RegisterOptions {
+    client_name: Option<String>,
+    timeout: Option<Duration>,
+}
+
+impl RegisterOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Shown to the person as the client's own claim, marked unverified,
+    /// beside where its redirect goes.
+    pub fn client_name(mut self, client_name: impl Into<String>) -> Self {
+        self.client_name = Some(client_name.into());
+        self
+    }
+
+    /// Overrides [`crate::ClientBuilder::timeout`] for this call, still per
+    /// attempt. Zero is refused as a bad request before anything is sent.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}
+
+#[derive(Serialize)]
+struct RegistrationRequest<'a> {
+    redirect_uris: &'a [&'a str],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_name: Option<&'a str>,
 }
 
 /// What [`OauthApi::device_authorization_with`] asks for. A value left unset,
@@ -580,6 +662,31 @@ pub struct TokenResponse {
     /// created before keys could be shown again in the console.
     #[serde(rename = "mslm:apikey", default, skip_serializing_if = "Option::is_none")]
     pub apikey: Option<String>,
+}
+
+/// A registered client, from [`OauthApi::register`]: public and with no
+/// secret, it proves each sign-in with PKCE.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ClientRegistration {
+    /// The client ID for [`OauthApi::authorization_url`] and
+    /// [`OauthApi::exchange_authorization_code`].
+    pub client_id: String,
+    /// When it was issued, in Unix seconds.
+    pub client_id_issued_at: i64,
+    /// The name the person will see, a placeholder when none was given or none
+    /// can be shown.
+    pub client_name: String,
+    pub redirect_uris: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_types: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_types: Option<Vec<String>>,
+    /// Always `none`.
+    pub token_endpoint_auth_method: String,
+    /// The most this client may be granted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// What every [`OauthApi`] call fails with.

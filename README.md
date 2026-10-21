@@ -246,6 +246,19 @@ let token = client
 
 Check that `state` came back as you sent it before you exchange `code`, which works once. The client ID can also be the https URL of a client metadata document your app serves, and such an app is never handed a key, so `token.apikey` stays `None`.
 
+### Register a client
+
+An app with no client ID, and no client metadata document to use as one, registers itself, then signs in with the `client_id` it gets back as the client ID for `authorization_url` and `exchange_authorization_code`:
+
+```rust
+let client = Client::new()?;
+let opts = RegisterOptions::new().client_name("Your App");
+let registration =
+    client.oauth().register_with(&["http://127.0.0.1:8765/callback"], opts).await?;
+```
+
+Each redirect URI must be https on a public host name, or http on a loopback address, which then matches any port. Nothing is kept until a person approves the client, so an app with no client ID saved can simply register again.
+
 ### TLS backends
 
 `rustls` is the default, so the crate builds with no system libraries at all. If you would rather link the platform's TLS, or you already depend on `reqwest` with its own defaults and want one backend rather than two:

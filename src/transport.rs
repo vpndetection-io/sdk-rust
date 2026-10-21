@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chrono::TimeZone;
-use reqwest::header::{AUTHORIZATION, HeaderMap, RETRY_AFTER};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, RETRY_AFTER};
 use serde::de::DeserializeOwned;
 
 use crate::error::{Error, ErrorKind, kind_for_status};
@@ -172,6 +172,24 @@ impl Transport {
     ) -> Result<Answer, Error> {
         let url = format!("{}{}", self.base_url, path);
         Answer::read(self.http.post(url).form(form).timeout(timeout).send().await?).await
+    }
+
+    /// An OAuth POST of an `application/json` body, `/oauth/register`'s, which
+    /// never carries the API key either.
+    pub(crate) async fn post_json_keyless(
+        &self,
+        path: &str,
+        body: String,
+        timeout: Duration,
+    ) -> Result<Answer, Error> {
+        let url = format!("{}{}", self.base_url, path);
+        let request = self
+            .http
+            .post(url)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)
+            .timeout(timeout);
+        Answer::read(request.send().await?).await
     }
 
     async fn send(
