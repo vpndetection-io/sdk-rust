@@ -235,5 +235,6 @@ fn envelope_message(body: &str) -> Option<String> {
         rc: Option<String>,
     }
     let envelope: Envelope = serde_json::from_str(body).ok()?;
-    envelope.error.or(envelope.rc).filter(|m| !m.is_empty())
+    // An empty `error` says nothing, so the `rc` beside it is read instead.
+    envelope.error.filter(|m| !m.is_empty()).or(envelope.rc.filter(|m| !m.is_empty()))
 }

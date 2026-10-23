@@ -785,6 +785,23 @@ fn a_key_holding_a_control_character_is_refused_at_build() {
     }
 }
 
+/// An empty `error` beside an `rc` read as the empty message, so the error
+/// said only its status (5.9.0).
+#[tokio::test]
+async fn an_empty_error_message_gives_way_to_the_rc() {
+    let stub = Stub::start([(
+        "/9.9.9.9".to_owned(),
+        Route::json(429, r#"{"error":"","rc":"QUOTA_EXCEEDED"}"#),
+    )])
+    .await;
+    let client = stub.client().api_key("key").build().expect("build");
+
+    let err = client.lookup("9.9.9.9").await.expect_err("a spent quota");
+
+    assert_eq!(err.kind(), ErrorKind::QuotaExceeded);
+    assert!(err.to_string().contains("QUOTA_EXCEEDED"), "{err}");
+}
+
 const ENTITLEMENT_BODY: &str = r#"{
   "org_id": "85bb51e4-2eb6-4a31-8e4d-02ba8b98fe61",
   "apikey": {
