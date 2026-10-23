@@ -2,6 +2,17 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.1 - 2026-10-23
+
+### Fixes
+
+- Read a date only in RFC 3339's form, never chrono's relaxed one ([`97fb2dd`](https://github.com/vpndetection-io/sdk-rust/commit/97fb2dd29f1d596efd79c0c7794b2415d70e42c6))
+- Read a Retry-After date in RFC 9110's three forms alone, in GMT ([`c257a2e`](https://github.com/vpndetection-io/sdk-rust/commit/c257a2e391293a40ab288ead0420ff3863bf056f))
+- Trim the API key, and refuse one holding a control character at build ([`48032cd`](https://github.com/vpndetection-io/sdk-rust/commit/48032cdfebbc56974de22e4d266bca5cad85345c))
+- Read the rc beside an empty error message ([`f4ff4d3`](https://github.com/vpndetection-io/sdk-rust/commit/f4ff4d300ff8bb93a25da550055b8d16a3054881))
+- Pass the registry token and the API key by name, never on a command line ([`00aef1b`](https://github.com/vpndetection-io/sdk-rust/commit/00aef1bf89d2e22ae28bc01b81b222a0358d39d6))
+- Integration: hold the resolved crate to the checksum the index publishes ([`919dca6`](https://github.com/vpndetection-io/sdk-rust/commit/919dca6ec01edb830a7913c79a8fd008089bbc2b))
+
 ## 5.9.0 - 2026-10-21
 
 ### Features
