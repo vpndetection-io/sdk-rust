@@ -298,7 +298,35 @@ async fn a_retry_after_is_seconds_or_an_http_date_and_nothing_else() {
         "Sunday, 06-Nov-94 08:49:37 GMT",
         "Sun Nov  6 08:49:37 1994",
     ];
-    let spent = ["+1", "-1", "x", "tomorrow", "+1 day", "1e400", "0x10", "1_0", "1e3", "1.5"];
+    // An RFC 2822 parser also read each of the dated ones here, another zone,
+    // no day name, a two-digit year or no seconds among them (5.9.0), so a
+    // `PST` date was waited out eight hours late.
+    let spent = [
+        "+1",
+        "-1",
+        "x",
+        "tomorrow",
+        "+1 day",
+        "1e400",
+        "0x10",
+        "1_0",
+        "1e3",
+        "1.5",
+        "Sun, 06 Nov 1994 08:49:37 +0500",
+        "Sun, 06 Nov 1994 08:49:37 -0000",
+        "Sun, 06 Nov 1994 08:49:37 PST",
+        "Sun, 06 Nov 1994 08:49:37 UT",
+        "Sun, 06 Nov 1994 08:49:37 Z",
+        "06 Nov 1994 08:49:37 GMT",
+        "Sun, 6 Nov 1994 08:49:37 GMT",
+        "Sun, 06 Nov 94 08:49:37 GMT",
+        "Sun, 06 Nov 1994 08:49 GMT",
+        "sun, 06 nov 1994 08:49:37 gmt",
+        "Sun, 06 Nov 1994 08:49:37 GMT (comment)",
+        "Sun, 06-Nov-94 08:49:37 GMT",
+        "Sun Nov 6 08:49:37 1994",
+        "Sun, 31 Nov 1994 08:49:37 GMT",
+    ];
     for (value, want, requests) in throttles
         .into_iter()
         .map(|value| (value, ErrorKind::RateLimited, 2))

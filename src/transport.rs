@@ -276,24 +276,90 @@ fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     Some(Duration::from_secs(wait.max(0) as u64))
 }
 
-/// An HTTP date as a Unix timestamp, in any of the three forms RFC 9110 says a
-/// recipient must read. The RFC 2822 parser takes the IMF-fixdate a server
-/// sends, and not the obsolete RFC 850 and asctime forms, so a 429 dated in
-/// either was a spent quota rather than a throttle (5.4.0, measured
-/// 2026-10-09). Both are GMT, the only zone either may carry.
+const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const LONG_DAY_NAMES: [&str; 7] =
+    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MONTHS: [&str; 12] =
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// An HTTP date as a Unix timestamp, in exactly one of the three forms RFC 9110
+/// has a recipient read, each of them GMT:
+///
+/// - `Sun, 06 Nov 1994 08:49:37 GMT`, the IMF-fixdate a server sends,
+/// - `Sunday, 06-Nov-94 08:49:37 GMT`, RFC 850's,
+/// - `Sun Nov  6 08:49:37 1994`, asctime's.
+///
+/// Nothing a general date parser would also take: an RFC 2822 parser reads
+/// another zone, a missing day name, a two-digit year or a missing second, and
+/// each would turn a spent quota into a throttle. The day name is read but not
+/// checked against the date; a date that names no real time, such as 31 Nov,
+/// is none.
 fn http_date(value: &str) -> Option<i64> {
-    if let Ok(when) = chrono::DateTime::parse_from_rfc2822(value) {
-        return Some(when.timestamp());
+    let fields: Vec<&str> = value.split(' ').collect();
+    let (year, month, day, time) = match fields.as_slice() {
+        [name, day, month, year, time, "GMT"]
+            if DAY_NAMES.iter().any(|d| name.strip_suffix(',') == Some(*d)) =>
+        {
+            (number(year, 4)?, *month, number(day, 2)?, *time)
+        }
+        [name, date, time, "GMT"]
+            if LONG_DAY_NAMES.iter().any(|d| name.strip_suffix(',') == Some(*d)) =>
+        {
+            let [day, month, year] = date.split('-').collect::<Vec<_>>()[..] else {
+                return None;
+            };
+            (full_year(number(year, 2)?), month, number(day, 2)?, *time)
+        }
+        [name, month, day, time, year] if DAY_NAMES.contains(name) => {
+            (number(year, 4)?, *month, number(day, 2)?, *time)
+        }
+        [name, month, "", day, time, year] if DAY_NAMES.contains(name) => {
+            (number(year, 4)?, *month, number(day, 1)?, *time)
+        }
+        _ => return None,
+    };
+    let month = MONTHS.iter().position(|m| *m == month)? as u32 + 1;
+    let [hour, minute, second] = time.split(':').collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    // RFC 9110 allows a leap second, which chrono's time of day does not.
+    let (second, leap) = match number(second, 2)? {
+        60 => (59, 1),
+        second => (second, 0),
+    };
+    let when = chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?.and_hms_opt(
+        number(hour, 2)?,
+        number(minute, 2)?,
+        second,
+    )?;
+    Some(chrono::Utc.from_utc_datetime(&when).timestamp() + leap)
+}
+
+/// A field of exactly `width` ASCII digits.
+fn number(field: &str, width: usize) -> Option<u32> {
+    if field.len() != width || !field.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
     }
-    ["%A, %d-%b-%y %H:%M:%S GMT", "%a %b %e %H:%M:%S %Y"]
-        .into_iter()
-        .find_map(|format| chrono::NaiveDateTime::parse_from_str(value, format).ok())
-        .map(|when| chrono::Utc.from_utc_datetime(&when).timestamp())
+    field.parse().ok()
+}
+
+/// RFC 850's two-digit year, read as RFC 9110 says: one that would land more
+/// than 50 years ahead is the most recent past year ending in those digits.
+fn full_year(two_digits: u32) -> u32 {
+    let now = chrono::Datelike::year(&chrono::Utc::now()) as u32;
+    let year = now - now % 100 + two_digits;
+    if year > now + 50 {
+        year - 100
+    } else if year + 100 <= now + 50 {
+        year + 100
+    } else {
+        year
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::http_date;
+    use super::{full_year, http_date};
 
     /// RFC 9110's own example, in each of its three forms.
     #[test]
@@ -305,13 +371,52 @@ mod tests {
         ] {
             assert_eq!(http_date(value), Some(784_111_777), "{value}");
         }
+        assert_eq!(http_date("Wed Nov 16 08:49:37 1994"), Some(784_975_777));
+        assert_eq!(http_date("Sat, 31 Dec 2016 23:59:60 GMT"), Some(1_483_228_800));
     }
 
     /// What a general date parser would read, and an HTTP date must not.
     #[test]
     fn nothing_else_is_an_http_date() {
-        for value in ["-1", "x", "tomorrow", "noon", "+1 day", "1e400", "soon", "1994-11-06"] {
+        for value in [
+            "-1",
+            "x",
+            "tomorrow",
+            "+1 day",
+            "1e400",
+            "1994-11-06",
+            "Sun, 06 Nov 1994 08:49:37 +0500",
+            "Sun, 06 Nov 1994 08:49:37 -0000",
+            "Sun, 06 Nov 1994 08:49:37 EST",
+            "Sun, 06 Nov 1994 08:49:37 UT",
+            "Sun, 06 Nov 1994 08:49:37 Z",
+            "06 Nov 1994 08:49:37 GMT",
+            "Sun, 6 Nov 1994 08:49:37 GMT",
+            "Sun, 06 Nov 94 08:49:37 GMT",
+            "Sun, 06 Nov 1994 08:49 GMT",
+            "sun, 06 nov 1994 08:49:37 gmt",
+            "Sun, 06 Nov 1994 08:49:37 GMT (comment)",
+            "Sun, 06-Nov-94 08:49:37 GMT",
+            "Sunday, 06-Nov-1994 08:49:37 GMT",
+            "Sun Nov 6 08:49:37 1994",
+            "Sun Nov 06 08:49:37 94",
+            "Sunday Nov  6 08:49:37 1994",
+            "Sun, 31 Nov 1994 08:49:37 GMT",
+            "Sun, 06 Nov 1994 24:00:00 GMT",
+            "Sun, 06 Nov 1994 +8:49:37 GMT",
+            "Sun,  06 Nov 1994 08:49:37 GMT",
+        ] {
             assert_eq!(http_date(value), None, "{value}");
+        }
+    }
+
+    #[test]
+    fn a_two_digit_year_is_never_more_than_50_years_ahead() {
+        let now = chrono::Datelike::year(&chrono::Utc::now()) as u32;
+        for two_digits in 0..100 {
+            let year = full_year(two_digits);
+            assert_eq!(year % 100, two_digits);
+            assert!(year <= now + 50 && year > now + 50 - 100, "{two_digits} read as {year}");
         }
     }
 }
