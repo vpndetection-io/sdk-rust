@@ -749,6 +749,42 @@ async fn an_ipv6_address_survives_the_path_template() {
     assert_eq!(result.ip, "2606:4700:4700::1111");
 }
 
+/// A key of blanks went out as a bare `Bearer`, which reads as a wrong key
+/// rather than none, and a padded key went out padded (5.9.0); the blanks
+/// around a key, a file's newline among them, are no part of it.
+#[tokio::test]
+async fn a_key_is_trimmed_and_a_blank_one_is_no_key() {
+    let stub = Stub::start(Stub::ok_routes(&["9.9.9.9"])).await;
+
+    for key in ["   ", "\t", " \r\n "] {
+        let client = stub.client().api_key(key).no_cache().build().expect("build");
+        client.lookup("9.9.9.9").await.expect("lookup");
+    }
+    let client = stub.client().api_key(" key\r\n").build().expect("build");
+    client.lookup("9.9.9.9").await.expect("lookup");
+
+    let calls = stub.requests();
+    assert_eq!(calls.len(), 4);
+    for call in &calls[..3] {
+        assert_eq!(call.header("authorization"), None);
+    }
+    assert_eq!(calls[3].header("authorization"), Some("Bearer key"));
+}
+
+/// reqwest failed every call with such a key as a retried `network` error with
+/// nothing sent (5.9.0), and a tab went out on the wire.
+#[test]
+fn a_key_holding_a_control_character_is_refused_at_build() {
+    for key in
+        ["sk\u{1}test", "sk-test\u{7f}", "sk\ttest", "sk\u{85}test", "sk-test\r\nX-Injected: 1"]
+    {
+        let err = Client::builder().api_key(key).build().expect_err(key);
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{key:?}");
+        assert!(err.to_string().contains("control character"), "{err}");
+        assert!(!err.to_string().contains("sk"), "the key reached the message: {err}");
+    }
+}
+
 const ENTITLEMENT_BODY: &str = r#"{
   "org_id": "85bb51e4-2eb6-4a31-8e4d-02ba8b98fe61",
   "apikey": {

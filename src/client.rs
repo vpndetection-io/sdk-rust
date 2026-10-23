@@ -533,6 +533,14 @@ impl ClientBuilder {
             return Err(Error::Config("timeout must be positive".to_owned()));
         }
 
+        let api_key = self.api_key.map(|key| key.trim().to_owned()).filter(|key| !key.is_empty());
+        // Refused here rather than at the first request, where reqwest failed
+        // every call as a retried network error with nothing sent (5.9.0). The
+        // message names the key's fault and never the key.
+        if api_key.as_deref().is_some_and(|key| key.chars().any(char::is_control)) {
+            return Err(Error::Config("the API key holds a control character".to_owned()));
+        }
+
         let http = match self.http_client {
             Some(client) => client,
             None => reqwest::Client::builder()
@@ -547,11 +555,7 @@ impl ClientBuilder {
         };
 
         Ok(Client(Arc::new(Inner {
-            transport: Transport::new(
-                http,
-                base_url.trim_end_matches('/').to_owned(),
-                self.api_key,
-            ),
+            transport: Transport::new(http, base_url.trim_end_matches('/').to_owned(), api_key),
             cache: (!self.cache_off)
                 .then(|| Cache::builder().max_capacity(capacity).time_to_live(ttl).build()),
             flights: Flights::default(),
