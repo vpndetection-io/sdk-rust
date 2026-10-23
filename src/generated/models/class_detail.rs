@@ -21,7 +21,12 @@ pub struct ClassDetail {
     #[serde(rename = "confidence", skip_serializing_if = "Option::is_none")]
     pub confidence: Option<String>,
     /// The most recent date this address was observed in this dataset.
-    #[serde(rename = "last_seen", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "last_seen",
+        default,
+        deserialize_with = "crate::dates::option_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_seen: Option<chrono::NaiveDate>,
 }
 

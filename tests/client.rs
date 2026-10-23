@@ -500,6 +500,130 @@ async fn an_answer_a_call_cannot_read_is_a_retried_server_error() {
     }
 }
 
+/// A date member is read only in the form its `format` names, on a day and at
+/// a time that exist. chrono's own reader took `2026-10-5`, ` 2026-10-20`,
+/// `+0500`, a space for the `T` and a leap second as some date through 5.9.0,
+/// in a lookup's `last_seen` and the entitlement's window alike.
+#[tokio::test]
+async fn a_date_in_any_other_form_is_a_retried_server_error() {
+    const DATE_TIMES: [&str; 12] = [
+        "x",
+        "tomorrow",
+        "2026-02-30T00:00:00Z",
+        "2026-10-20T24:00:00Z",
+        "2026-10-20T10:00:00",
+        "2026-10-20",
+        "2026-10-20 10:00:00Z",
+        "2026-10-20t10:00:00z",
+        "2026-10-20T10:00:00+0500",
+        "2026-10-20T23:59:60Z",
+        " 2026-10-20T10:00:00Z",
+        "+002026-10-20T10:00:00Z",
+    ];
+    const DATES: [&str; 8] = [
+        "x",
+        "2026-02-30",
+        "2026-10-5",
+        "2026-1-05",
+        " 2026-10-20",
+        "+2026-10-20",
+        "-0001-10-20",
+        "2026-10-20T00:00:00Z",
+    ];
+    let mut cases = Vec::new();
+    for value in DATE_TIMES {
+        cases.push(("/api/v1/database/list", value, family(value)));
+        cases.push(("/api/v1/database/downloads", value, attempt(value)));
+        let window = ENTITLEMENT_BODY.replace("2026-09-04T07:00:00Z", value);
+        cases.push(("/api/v1/entitlement", value, window));
+        let expires =
+            ENTITLEMENT_BODY.replace(r#""expires": null"#, &format!(r#""expires": "{value}""#));
+        cases.push(("/api/v1/entitlement", value, expires));
+    }
+    for value in DATES {
+        cases.push(("/api/v1/database/metadata", value, metadata(value)));
+        cases.push(("/9.9.9.9", value, seen("vpn", "last_seen", value)));
+        cases.push(("/9.9.9.9", value, seen("dcproxy", "first_seen", value)));
+        cases.push(("/9.9.9.9", value, seen("pubproxy", "last_seen", value)));
+    }
+    // Each case waits out two backoffs, so they run side by side.
+    let mut checks = tokio::task::JoinSet::new();
+    for (path, value, body) in cases {
+        checks.spawn(async move {
+            let stub = Stub::start([(path.to_owned(), Route::ok(body))]).await;
+            let client = stub.client().api_key("key").no_cache().retries(2).build().expect("build");
+            let db = client.database();
+            let outcome = match path {
+                "/api/v1/database/list" => db.list().await.map(drop),
+                "/api/v1/database/downloads" => db.downloads(None).await.map(drop),
+                "/api/v1/database/metadata" => db.metadata("vpn_ip_v1").await.map(drop),
+                "/api/v1/entitlement" => client.my_entitlement().await.map(drop),
+                _ => client.lookup("9.9.9.9").await.map(drop),
+            };
+            let Err(err) = outcome else { panic!("{path}: {value:?} read as a date") };
+            assert_eq!(err.kind(), ErrorKind::ServerError, "{path}, {value:?}: {err}");
+            assert_eq!(err.status(), Some(200), "{path}, {value:?}: the status");
+            assert_eq!(stub.count(), 3, "{path}, {value:?}: retried like an outage");
+        });
+    }
+    while let Some(check) = checks.join_next().await {
+        check.expect("check");
+    }
+}
+
+/// The forms the spec names still read, and an optional date may be absent.
+#[tokio::test]
+async fn a_date_in_its_own_form_reads() {
+    let stub = Stub::start([
+        ("/api/v1/database/list".to_owned(), Route::ok(family("2026-09-04T10:00:00.5-08:30"))),
+        ("/api/v1/database/metadata".to_owned(), Route::ok(metadata("2028-02-29"))),
+        ("/9.9.9.9".to_owned(), Route::ok(seen("vpn", "last_seen", "2026-10-20"))),
+        ("/1.1.1.1".to_owned(), Route::ok(r#"{"ip":"1.1.1.1","is_vpn":true,"vpn":{}}"#)),
+        (
+            "/8.8.8.8".to_owned(),
+            Route::ok(r#"{"ip":"8.8.8.8","is_vpn":true,"vpn":{"last_seen":null}}"#),
+        ),
+    ])
+    .await;
+    let client = stub.client().api_key("key").build().expect("build");
+    let db = client.database();
+
+    let starts = db.list().await.expect("list")[0].starts.expect("starts");
+    assert_eq!(starts.to_rfc3339(), "2026-09-04T10:00:00.500-08:30");
+    assert_eq!(db.metadata("vpn_ip_v1").await.expect("metadata").updated.to_string(), "2028-02-29");
+    let seen = client.lookup("9.9.9.9").await.expect("lookup");
+    assert_eq!(
+        seen.vpn.as_ref().and_then(|v| v.last_seen).map(|d| d.to_string()).as_deref(),
+        Some("2026-10-20")
+    );
+    for ip in ["1.1.1.1", "8.8.8.8"] {
+        let answer = client.lookup(ip).await.expect(ip);
+        assert_eq!(answer.vpn.as_ref().expect("vpn").last_seen, None, "{ip}");
+    }
+}
+
+fn family(starts: &str) -> String {
+    format!(
+        r#"{{"databases":[{{"base":"vpn_ip","name":"VPN IP","summary":"s","standing":"licensed","open":false,"in_term":true,"license_type":"standard","starts":"{starts}","expires":null,"renews_at":null,"notice_due_at":null,"versions":[]}}]}}"#
+    )
+}
+
+fn attempt(created: &str) -> String {
+    format!(
+        r#"{{"downloads":[{{"dataset_id":"vpn_ip_v1","format":"csvgz","outcome":"ok","sample":false,"open":true,"bytes":1,"http_status":302,"apikey_id":null,"client_ip":null,"user_agent":null,"created":"{created}"}}]}}"#
+    )
+}
+
+fn metadata(updated: &str) -> String {
+    format!(
+        r#"{{"id":"vpn_ip_v1","updated":"{updated}","entries":1,"schema":{{}},"size":{{"csvgz":1}}}}"#
+    )
+}
+
+fn seen(detail: &str, member: &str, value: &str) -> String {
+    format!(r#"{{"ip":"9.9.9.9","is_vpn":true,"{detail}":{{"{member}":"{value}"}}}}"#)
+}
+
 /// Which digests a dataset publishes is the API's choice, so the whole set comes
 /// back. They nest under `checksums`, and reading a top-level `sha256` is how the
 /// Node SDK shipped this broken in 1.0.x.

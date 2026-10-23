@@ -20,7 +20,8 @@ pub struct AccountOrg {
     #[serde(
         rename = "created",
         default,
-        with = "::serde_with::rust::double_option",
+        deserialize_with = "crate::dates::double_option_date_time",
+        serialize_with = "::serde_with::rust::double_option::serialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub created: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,

@@ -23,10 +23,10 @@ pub struct EntitlementUsage {
     #[serde(rename = "hard_limit", deserialize_with = "Option::deserialize")]
     pub hard_limit: Option<i64>,
     /// When the current allowance period began.
-    #[serde(rename = "window_start")]
+    #[serde(rename = "window_start", deserialize_with = "crate::dates::date_time")]
     pub window_start: chrono::DateTime<chrono::FixedOffset>,
     /// When the allowance next resets.
-    #[serde(rename = "window_end")]
+    #[serde(rename = "window_end", deserialize_with = "crate::dates::date_time")]
     pub window_end: chrono::DateTime<chrono::FixedOffset>,
 }
 

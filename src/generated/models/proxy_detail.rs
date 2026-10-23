@@ -18,10 +18,20 @@ pub struct ProxyDetail {
     #[serde(rename = "provider", skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// The earliest date within the window this address was seen in the pool.
-    #[serde(rename = "first_seen", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "first_seen",
+        default,
+        deserialize_with = "crate::dates::option_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub first_seen: Option<chrono::NaiveDate>,
     /// The most recent date within the window this address was seen in the pool.
-    #[serde(rename = "last_seen", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "last_seen",
+        default,
+        deserialize_with = "crate::dates::option_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_seen: Option<chrono::NaiveDate>,
     /// How many times the address was observed in the pool during the window.
     #[serde(rename = "hits", skip_serializing_if = "Option::is_none")]

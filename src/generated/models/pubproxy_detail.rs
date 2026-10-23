@@ -30,7 +30,12 @@ pub struct PubproxyDetail {
     #[serde(rename = "num_proxies", skip_serializing_if = "Option::is_none")]
     pub num_proxies: Option<i32>,
     /// The most recent date within the window a proxy on this address was seen.
-    #[serde(rename = "last_seen", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "last_seen",
+        default,
+        deserialize_with = "crate::dates::option_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_seen: Option<chrono::NaiveDate>,
     /// The most recent date within the window a request through a proxy on this address was answered, as YYYY-MM-DD, or an empty string when none was.
     #[serde(rename = "last_usable", skip_serializing_if = "Option::is_none")]

@@ -17,7 +17,7 @@ pub struct EntitlementApikey {
     #[serde(rename = "id")]
     pub id: uuid::Uuid,
     /// Null for a key with no end date, which is the normal case.
-    #[serde(rename = "expires", deserialize_with = "Option::deserialize")]
+    #[serde(rename = "expires", deserialize_with = "crate::dates::option_date_time")]
     pub expires: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// The source addresses this key may be used from. EMPTY means unrestricted, never \"deny all\".
     #[serde(rename = "allowed_cidrs")]

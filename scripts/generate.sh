@@ -77,6 +77,24 @@ cp -R .gen/src/models src/generated/models
 
 rm -rf .gen
 
+# Every date member reads through src/dates.rs, which takes only the form the
+# spec's `format` names: chrono's own serde reader is a relaxed one, and took
+# `2026-10-5` or `+0500` as some date (dates.rs). A date member in a shape
+# these five do not rewrite stops the script, rather than reading through
+# chrono unnoticed.
+perl -0777 -pi -e '
+    my $dt = qr/chrono::DateTime<chrono::FixedOffset>/;
+    s/(#\[serde\(\s*rename = "\w+",\s*deserialize_with = ")Option::deserialize("\s*\)\]\s+pub \w+: Option<$dt>,)/${1}crate::dates::option_date_time$2/g;
+    s/(#\[serde\(\s*rename = "\w+",\s*default,\s*)with = "::serde_with::rust::double_option"(,\s*skip_serializing_if = "Option::is_none",?\s*\)\]\s+pub \w+: Option<Option<$dt>>,)/${1}deserialize_with = "crate::dates::double_option_date_time", serialize_with = "::serde_with::rust::double_option::serialize"$2/g;
+    s/(#\[serde\(\s*rename = "\w+")(\s*\)\]\s+pub \w+: $dt,)/$1, deserialize_with = "crate::dates::date_time"$2/g;
+    s/(#\[serde\(\s*rename = "\w+")(\s*\)\]\s+pub \w+: chrono::NaiveDate,)/$1, deserialize_with = "crate::dates::date"$2/g;
+    s/(#\[serde\(\s*rename = "\w+",)(\s*skip_serializing_if = "Option::is_none",?\s*\)\]\s+pub \w+: Option<chrono::NaiveDate>,)/$1 default, deserialize_with = "crate::dates::option_date",$2/g;
+' src/generated/models/*.rs
+if perl -0777 -ne 'while (/(#\[serde\((?:[^\]]|\n)*?\)\])\s+pub \w+: [^\n]*chrono::/g) { print "$1\n" unless $1 =~ /crate::dates::/ }' src/generated/models/*.rs | grep . ; then
+    echo "a date member above reads through chrono's relaxed parser: teach this script its shape" >&2
+    exit 1
+fi
+
 # The repo is rustfmt-clean and CI gates on it, so the generator's output is
 # normalized here rather than left as a diff for the next `cargo fmt` to find.
 ./scripts/cargo.sh fmt

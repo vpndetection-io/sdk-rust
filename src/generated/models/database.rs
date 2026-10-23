@@ -24,16 +24,16 @@ pub struct Database {
     /// What a license permits you to do with the data. Null for a family you hold no license for, which is every one with standing `unlicensed`.
     #[serde(rename = "license_type", deserialize_with = "Option::deserialize")]
     pub license_type: Option<LicenseType>,
-    #[serde(rename = "starts", deserialize_with = "Option::deserialize")]
+    #[serde(rename = "starts", deserialize_with = "crate::dates::option_date_time")]
     pub starts: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// A hard stop. Null when the license has no end date, which is the normal case for a rolling agreement, and when there is no license. A rolling license reports its turnover date in renews_at instead.
-    #[serde(rename = "expires", deserialize_with = "Option::deserialize")]
+    #[serde(rename = "expires", deserialize_with = "crate::dates::option_date_time")]
     pub expires: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// When a rolling license next renews. Null when the license has no defined term, when expires sets a hard stop instead, and when there is no license.
-    #[serde(rename = "renews_at", deserialize_with = "Option::deserialize")]
+    #[serde(rename = "renews_at", deserialize_with = "crate::dates::option_date_time")]
     pub renews_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// The last day notice of non-renewal can be given for the term ending at renews_at. Null whenever renews_at is, and when the agreement records no notice period.
-    #[serde(rename = "notice_due_at", deserialize_with = "Option::deserialize")]
+    #[serde(rename = "notice_due_at", deserialize_with = "crate::dates::option_date_time")]
     pub notice_due_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// False when the license has lapsed; downloads are refused.
     #[serde(rename = "in_term")]

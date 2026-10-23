@@ -38,7 +38,7 @@ pub struct Download {
     pub client_ip: Option<String>,
     #[serde(rename = "user_agent", deserialize_with = "Option::deserialize")]
     pub user_agent: Option<String>,
-    #[serde(rename = "created")]
+    #[serde(rename = "created", deserialize_with = "crate::dates::date_time")]
     pub created: chrono::DateTime<chrono::FixedOffset>,
 }
 

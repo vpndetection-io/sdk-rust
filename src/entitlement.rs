@@ -28,7 +28,7 @@ pub struct Entitlement {
 pub struct EntitlementApikey {
     pub id: String,
     /// `None` for a key with no end date, which is the normal case.
-    #[serde(deserialize_with = "Option::deserialize")]
+    #[serde(deserialize_with = "crate::dates::option_date_time")]
     pub expires: Option<chrono::DateTime<chrono::FixedOffset>>,
     /// The source addresses this key may be used from. EMPTY means
     /// unrestricted, never "deny all".
@@ -60,7 +60,9 @@ pub struct EntitlementUsage {
     #[serde(deserialize_with = "Option::deserialize")]
     pub hard_limit: Option<i64>,
     /// When the current allowance period began.
+    #[serde(deserialize_with = "crate::dates::date_time")]
     pub window_start: chrono::DateTime<chrono::FixedOffset>,
     /// When the allowance next resets.
+    #[serde(deserialize_with = "crate::dates::date_time")]
     pub window_end: chrono::DateTime<chrono::FixedOffset>,
 }

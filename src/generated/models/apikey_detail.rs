@@ -21,26 +21,29 @@ pub struct ApikeyDetail {
     /// The leading, non-secret part, so a key is recognizable without storing it.
     #[serde(rename = "key_prefix")]
     pub key_prefix: String,
-    #[serde(rename = "created")]
+    #[serde(rename = "created", deserialize_with = "crate::dates::date_time")]
     pub created: chrono::DateTime<chrono::FixedOffset>,
     #[serde(
         rename = "expires",
         default,
-        with = "::serde_with::rust::double_option",
+        deserialize_with = "crate::dates::double_option_date_time",
+        serialize_with = "::serde_with::rust::double_option::serialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub expires: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
     #[serde(
         rename = "last_used_at",
         default,
-        with = "::serde_with::rust::double_option",
+        deserialize_with = "crate::dates::double_option_date_time",
+        serialize_with = "::serde_with::rust::double_option::serialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub last_used_at: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
     #[serde(
         rename = "revoked_at",
         default,
-        with = "::serde_with::rust::double_option",
+        deserialize_with = "crate::dates::double_option_date_time",
+        serialize_with = "::serde_with::rust::double_option::serialize",
         skip_serializing_if = "Option::is_none"
     )]
     pub revoked_at: Option<Option<chrono::DateTime<chrono::FixedOffset>>>,
