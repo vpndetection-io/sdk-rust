@@ -23,6 +23,7 @@ CARGO_VOLUME="${CARGO_VOLUME:-vpndetection-rust-cargo}"
 CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
 
+# The key reaches docker by NAME: a value on its command line is visible to ps.
 exec docker run --rm -i \
     -v "$PWD:/work" \
     -v "${CARGO_VOLUME}:/cargo" \
@@ -31,8 +32,8 @@ exec docker run --rm -i \
     -e CARGO_TERM_COLOR=never \
     -e CARGO_INCREMENTAL="$CARGO_INCREMENTAL" \
     -e CARGO_PROFILE_DEV_DEBUG="$CARGO_PROFILE_DEV_DEBUG" \
-    -e VPNDETECTION_LIVE="${VPNDETECTION_LIVE:-}" \
-    -e VPNDETECTION_API_KEY="${VPNDETECTION_API_KEY:-}" \
+    -e VPNDETECTION_LIVE \
+    -e VPNDETECTION_API_KEY \
     -w /work \
     "$RUST_IMAGE" bash -euc "
         # rust:*-slim ships neither component, and the one behind \`cargo fmt\` is

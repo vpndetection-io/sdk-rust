@@ -33,6 +33,8 @@ fi
 # The working tree is mounted READ ONLY and copied inside, so cargo cannot leave
 # a root-owned target/ or Cargo.lock behind in it. Downloaded crates persist in a
 # docker volume; target/ stays inside the container and goes with it.
+# The token reaches docker by NAME: a value on its command line is visible to ps.
+export CARGO_REGISTRY_TOKEN="${CARGO_REGISTRY_TOKEN:-}"
 docker run --rm \
     -v "$PWD:/src:ro" \
     -v vpndetection-rust-cargo:/cargo \
@@ -41,7 +43,7 @@ docker run --rm \
     -e CARGO_TERM_COLOR=never \
     -e CARGO_INCREMENTAL="$CARGO_INCREMENTAL" \
     -e CARGO_PROFILE_DEV_DEBUG="$CARGO_PROFILE_DEV_DEBUG" \
-    -e CARGO_REGISTRY_TOKEN="${CARGO_REGISTRY_TOKEN:-}" \
+    -e CARGO_REGISTRY_TOKEN \
     "$RUST_IMAGE" bash -euc "
         cp -R /src /tmp/build
         cd /tmp/build
