@@ -132,16 +132,26 @@ function publishedVersions() {
 # Every version the index will serve, range ignored, so the staleness gate above
 # has something to compare the range's ceiling against.
 function allPublishedVersions() {
-    local body line vers
+    indexLines | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p'
+    return 0
+}
+
+# The sha256 the index publishes for one version's .crate file.
+function publishedChecksum() {
+    indexLines | grep -F "\"vers\":\"$1\"" | sed -n 's/.*"cksum":"\([0-9a-f]*\)".*/\1/p' | head -1
+    return 0
+}
+
+# The index's line for each version, yanked ones dropped.
+function indexLines() {
+    local body line
     body="$(curl -fsS "${INDEX}/$(indexPath "$CRATE")" 2>/dev/null || true)"
     while read -r line ; do
         case "$(printf '%s' "$line" | tr -d ' ')" in
+            '') continue ;;
             *'"yanked":true'*) continue ;;
         esac
-        vers="$(printf '%s' "$line" | sed -n 's/.*"vers":"\([^"]*\)".*/\1/p')"
-        if [ -n "$vers" ] ; then
-            echo "$vers"
-        fi
+        printf '%s\n' "$line"
     done <<< "$body"
     return 0
 }
@@ -166,11 +176,12 @@ function inRange() {
 }
 
 # What cargo actually resolved, read from the lock file it just wrote. A package
-# taken from a path dependency or a [patch] carries NO `source` line at all, and
-# a replaced registry carries a different one, so the entry proves where the code
-# came from rather than merely naming a version.
+# taken from a path dependency or a [patch] carries NO `source` line at all. A
+# source REPLACEMENT keeps crates.io's name there, so the package's checksum is
+# held to the one the index publishes for that version: the entry then proves
+# the code is the released .crate rather than merely naming a version.
 function assertFromTheRegistry() {
-    local published="$1" block vers source
+    local published="$1" block vers source checksum
     block="$(sed -n "/^name = \"${CRATE}\"\$/,/^\$/p" Cargo.lock)"
     if [ -z "$block" ] ; then
         echo "==> FAILED: ${CRATE} is not in Cargo.lock at all" >&2
@@ -178,6 +189,7 @@ function assertFromTheRegistry() {
     fi
     vers="$(printf '%s\n' "$block" | sed -n 's/^version = "\(.*\)"$/\1/p')"
     source="$(printf '%s\n' "$block" | sed -n 's/^source = "\(.*\)"$/\1/p')"
+    checksum="$(printf '%s\n' "$block" | sed -n 's/^checksum = "\(.*\)"$/\1/p')"
 
     if [ "$source" != "$REGISTRY_SOURCE" ] ; then
         echo "==> FAILED: ${CRATE} resolved from ${source:-a local path}, not from" \
@@ -186,6 +198,11 @@ function assertFromTheRegistry() {
     fi
     if ! printf '%s\n' "$published" | grep -qx "$vers" ; then
         echo "==> FAILED: resolved ${vers}, which is not one of ${published//$'\n'/, }" >&2
+        exit 1
+    fi
+    if [ -z "$checksum" ] || [ "$checksum" != "$(publishedChecksum "$vers")" ] ; then
+        echo "==> FAILED: the ${CRATE} ${vers} cargo resolved is not the .crate the index" \
+            "publishes, so a replaced source served it" >&2
         exit 1
     fi
     echo "==> testing ${CRATE} ${vers} from ${source}"
