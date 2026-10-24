@@ -32,13 +32,13 @@ sha2 = { version = "0.11", default-features = false }
 # emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
 # stays out of the crate's public surface.
 uuid = { version = "1", features = ["serde"] }
-tokio = { version = "1.44.2", features = ["fs", "io-util", "sync", "time"] }
+tokio = { version = "1.53.3", features = ["fs", "io-util", "sync", "time"] }
 
 [dev-dependencies]
 # Already in the build through reqwest's form and query features. The OAuth
 # tests decode each request body with it.
 serde_urlencoded = "0.7"
-tokio = { version = "1.44.2", features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "net", "time"] }
 
 [features]
 default = ["rustls-tls"]
