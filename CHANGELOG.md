@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.2 - 2026-10-24
+
+### Fixes
+
+- Require tokio 1.53.3, past RUSTSEC-2026-0386 ([`df4da53`](https://github.com/vpndetection-io/sdk-rust/commit/df4da5396c2d649327e71b603e5d53b8f7ddc592))
+
 ## 5.9.1 - 2026-10-23
 
 ### Fixes
