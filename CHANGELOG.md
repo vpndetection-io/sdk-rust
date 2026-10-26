@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.3 - 2026-10-26
+
+### Fixes
+
+- Re-pin the spec to 2026.10.25: Retry-After on myip's 429 ([`426e7c7`](https://github.com/vpndetection-io/sdk-rust/commit/426e7c72621009f42c117c95fa2e1a835f7c4246))
+
 ## 5.9.2 - 2026-10-24
 
 ### Fixes
