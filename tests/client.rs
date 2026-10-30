@@ -542,7 +542,7 @@ async fn a_date_in_any_other_form_is_a_retried_server_error() {
         "2026-10-20T10:00:00",
         "2026-10-20",
         "2026-10-20 10:00:00Z",
-        "2026-10-20t10:00:00z",
+        "2026-10-20T10:00:00Z\\n",
         "2026-10-20T10:00:00+0500",
         "2026-10-20T23:59:60Z",
         " 2026-10-20T10:00:00Z",
@@ -627,6 +627,33 @@ async fn a_date_in_its_own_form_reads() {
     for ip in ["1.1.1.1", "8.8.8.8"] {
         let answer = client.lookup(ip).await.expect(ip);
         assert_eq!(answer.vpn.as_ref().expect("vpn").last_seen, None, "{ip}");
+    }
+}
+
+/// RFC 3339 lets a date-time's `T` and `Z` be lowercase, and through 5.9.3 one
+/// in that case failed the call as an unreadable answer.
+#[tokio::test]
+async fn a_lowercase_t_or_z_in_a_date_time_reads() {
+    for value in ["2026-09-04t10:00:00Z", "2026-09-04T10:00:00z", "2026-09-04t10:00:00.5z"] {
+        let window = ENTITLEMENT_BODY
+            .replace("2026-09-04T07:00:00Z", value)
+            .replace(r#""expires": null"#, &format!(r#""expires": "{value}""#));
+        let stub = Stub::start([
+            ("/api/v1/database/list".to_owned(), Route::ok(family(value))),
+            ("/api/v1/database/downloads".to_owned(), Route::ok(attempt(value))),
+            ("/api/v1/entitlement".to_owned(), Route::ok(window)),
+        ])
+        .await;
+        let client = stub.client().api_key("key").no_cache().retries(0).build().expect("build");
+        let db = client.database();
+        let at = |d: chrono::DateTime<chrono::FixedOffset>| d.timestamp_millis();
+        let want = if value.contains('.') { 1_788_516_000_500 } else { 1_788_516_000_000 };
+
+        let starts = db.list().await.expect("list")[0].starts.expect("starts");
+        assert_eq!(at(starts), want, "{value:?}: starts");
+        assert_eq!(at(db.downloads(None).await.expect("downloads")[0].created), want, "{value:?}");
+        client.my_entitlement().await.expect(value);
+        assert_eq!(stub.count(), 3, "{value:?}: each read at once");
     }
 }
 

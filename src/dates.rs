@@ -3,11 +3,12 @@
 //! `scripts/generate.sh` points every date member of the generated models here,
 //! and the hand-written entitlement types name these readers themselves.
 //! chrono's own serde reader is a relaxed one: through 5.9.0 it took
-//! `2026-10-5`, ` 2026-10-20`, `+2026-10-20`, a space for the `T`, a lowercase
-//! `t` or `z`, `+0500` and a leap second, each as some date, where the spec
-//! promises RFC 3339's `full-date` for `format: date` and its `date-time`, with
-//! a zone, for `format: date-time`. Anything else is an answer this client
-//! cannot read, the same retried `server_error` as a member of the wrong type.
+//! `2026-10-5`, ` 2026-10-20`, `+2026-10-20`, a space for the `T`, `+0500` and
+//! a leap second, each as some date, where the spec promises RFC 3339's
+//! `full-date` for `format: date` and its `date-time`, with a zone, for
+//! `format: date-time`. Anything else is an answer this client cannot read, the
+//! same retried `server_error` as a member of the wrong type. RFC 3339 lets the
+//! `T` and the `Z` be lowercase, which 5.9.3 refused.
 
 use chrono::{DateTime, FixedOffset, NaiveDate};
 use serde::Deserialize;
@@ -73,10 +74,11 @@ fn parse_date(value: &str) -> Option<NaiveDate> {
 }
 
 /// `YYYY-MM-DDTHH:MM:SS`, an optional fraction, then `Z` or `+HH:MM`/`-HH:MM`,
-/// at a time that exists: no hour 24, no minute or second 60.
+/// at a time that exists: no hour 24, no minute or second 60. The `T` and the
+/// `Z` in either case.
 fn parse_date_time(value: &str) -> Option<DateTime<FixedOffset>> {
     let b = value.as_bytes();
-    if b.len() < 20 || !is_date_shape(&b[..10]) || b[10] != b'T' {
+    if b.len() < 20 || !is_date_shape(&b[..10]) || !matches!(b[10], b'T' | b't') {
         return None;
     }
     let time = &b[11..19];
@@ -95,6 +97,7 @@ fn parse_date_time(value: &str) -> Option<DateTime<FixedOffset>> {
         rest = &fraction[n..];
     }
     let zoned = rest == b"Z"
+        || rest == b"z"
         || (rest.len() == 6
             && matches!(rest[0], b'+' | b'-')
             && digits(&rest[1..3])
@@ -197,6 +200,9 @@ mod tests {
             ("2026-09-04T10:00:00+05:00", "2026-09-04T10:00:00+05:00"),
             ("2026-09-04T10:00:00.5-08:30", "2026-09-04T10:00:00.500-08:30"),
             ("2028-02-29T23:59:59Z", "2028-02-29T23:59:59+00:00"),
+            ("2026-10-20t10:00:00Z", "2026-10-20T10:00:00+00:00"),
+            ("2026-10-20T10:00:00z", "2026-10-20T10:00:00+00:00"),
+            ("2026-10-20t10:00:00.5z", "2026-10-20T10:00:00.500+00:00"),
         ] {
             assert_eq!(
                 parse_date_time(value).map(|d| d.to_rfc3339()),
@@ -219,8 +225,7 @@ mod tests {
             "2026-10-20T23:60:00Z",
             "2026-10-20T23:59:60Z",
             "2026-10-20 10:00:00Z",
-            "2026-10-20t10:00:00Z",
-            "2026-10-20T10:00:00z",
+            "2026-10-20T10:00:00Z\n",
             "2026-10-20T10:00:00+0500",
             "2026-10-20T10:00:00+05",
             "2026-10-20T10:00:00.Z",
