@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.4 - 2026-10-30
+
+### Fixes
+
+- Read a lowercase t or z in a date-time ([`061528c`](https://github.com/vpndetection-io/sdk-rust/commit/061528c8e118fcda8f4543a3d1616e2cc12c6423))
+
 ## 5.9.3 - 2026-10-26
 
 ### Fixes
