@@ -236,7 +236,7 @@ async fn an_entry_error_is_classified_by_its_status() {
         "/8.8.8.8".to_owned(),
         Route::json(
             429,
-            r#"{"error":"request allowance exceeded; raise or remove your overage limit"}"#,
+            r#"{"error":"monthly request allowance spent; upgrade your plan for more lookups"}"#,
         ),
     ));
     routes.push(("/9.9.9.9".to_owned(), Route::json(500, r#"{"error":"lookup failed"}"#)));
