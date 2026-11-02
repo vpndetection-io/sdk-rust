@@ -95,6 +95,18 @@ if perl -0777 -ne 'while (/(#\[serde\((?:[^\]]|\n)*?\)\])\s+pub \w+: [^\n]*chron
     exit 1
 fi
 
+# A `type: object` with no properties is generated as serde_json::Value, which
+# takes any JSON at all, so a `sample` row of `1` or `null` came back as the
+# answer (5.9.4). Each one reads through src/objects.rs, and one in another
+# shape stops the script, as a date member does.
+perl -0777 -pi -e '
+    s/(#\[serde\(rename = "\w+", skip_serializing_if = "Option::is_none")(\)\]\s+pub \w+: Option<std::collections::HashMap<String, Vec<serde_json::Value>>>,)/$1, default, deserialize_with = "crate::objects::option_object_lists"$2/g;
+' src/generated/models/*.rs
+if perl -0777 -ne 'while (/(#\[serde\((?:[^\]]|\n)*?\)\])\s+pub \w+: [^\n]*serde_json::Value/g) { print "$1\n" unless $1 =~ /crate::objects::/ }' src/generated/models/*.rs | grep . ; then
+    echo "an object member above reads as any JSON value: teach this script its shape" >&2
+    exit 1
+fi
+
 # The repo is rustfmt-clean and CI gates on it, so the generator's output is
 # normalized here rather than left as a diff for the next `cargo fmt` to find.
 ./scripts/cargo.sh fmt

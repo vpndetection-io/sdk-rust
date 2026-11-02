@@ -54,6 +54,7 @@ mod generated;
 mod lookup;
 pub mod middleware;
 mod oauth;
+mod objects;
 mod transport;
 
 // The OAuth unit tests reuse the integration suite's stub, which names this

@@ -27,7 +27,12 @@ pub struct DatabaseMetadata {
     #[serde(rename = "schema")]
     pub schema: std::collections::HashMap<String, Vec<models::DatabaseMetadataColumn>>,
     /// A few real rows, keyed by format
-    #[serde(rename = "sample", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "sample",
+        skip_serializing_if = "Option::is_none",
+        default,
+        deserialize_with = "crate::objects::option_object_lists"
+    )]
     pub sample: Option<std::collections::HashMap<String, Vec<serde_json::Value>>>,
     /// Bytes per format
     #[serde(rename = "size", skip_serializing_if = "Option::is_none")]

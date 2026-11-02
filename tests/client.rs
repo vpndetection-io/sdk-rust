@@ -657,6 +657,51 @@ async fn a_lowercase_t_or_z_in_a_date_time_reads() {
     }
 }
 
+/// A `sample` row is an object, and the generator reads one as any JSON value,
+/// so a row of `1`, `"x"`, `[]`, `true` or `null` came back as the answer
+/// through 5.9.4.
+#[tokio::test]
+async fn a_sample_row_that_is_no_object_is_a_retried_server_error() {
+    const ROWS: [&str; 6] = ["1", r#""x""#, "[]", "[1,2]", "true", "null"];
+    let sampled = |row: &str| {
+        format!(
+            r#"{{"id":"vpn_ip_v1","updated":"2026-10-20","entries":2,"schema":{{}},"size":{{"csvgz":1}},"sample":{{"csvgz":[{{"ip":"1.1.1.1"}},{row}]}}}}"#
+        )
+    };
+    // Each case waits out two backoffs, so they run side by side.
+    let mut checks = tokio::task::JoinSet::new();
+    for row in ROWS {
+        let body = sampled(row);
+        checks.spawn(async move {
+            let stub =
+                Stub::start([("/api/v1/database/metadata".to_owned(), Route::ok(body))]).await;
+            let client = stub.client().api_key("key").retries(2).build().expect("build");
+            let Err(err) = client.database().metadata("vpn_ip_v1").await else {
+                panic!("{row}: read as a sample row")
+            };
+            assert_eq!(err.kind(), ErrorKind::ServerError, "{row}: {err}");
+            assert_eq!(err.status(), Some(200), "{row}: the status");
+            assert_eq!(stub.count(), 3, "{row}: retried like an outage");
+        });
+    }
+    while let Some(check) = checks.join_next().await {
+        check.expect("case");
+    }
+
+    let stub = Stub::start([(
+        "/api/v1/database/metadata".to_owned(),
+        Route::ok(sampled(r#"{"ip":"8.8.8.8"}"#)),
+    )])
+    .await;
+    let client = stub.client().api_key("key").build().expect("build");
+    let meta = client.database().metadata("vpn_ip_v1").await.expect("metadata");
+    let sample = meta.sample.expect("the sample");
+    assert_eq!(
+        sample["csvgz"],
+        [serde_json::json!({"ip": "1.1.1.1"}), serde_json::json!({"ip": "8.8.8.8"})]
+    );
+}
+
 fn family(starts: &str) -> String {
     format!(
         r#"{{"databases":[{{"base":"vpn_ip","name":"VPN IP","summary":"s","standing":"licensed","open":false,"in_term":true,"license_type":"standard","starts":"{starts}","expires":null,"renews_at":null,"notice_due_at":null,"versions":[]}}]}}"#
