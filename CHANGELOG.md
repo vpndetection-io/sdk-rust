@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.5 - 2026-11-02
+
+### Fixes
+
+- Refuse a metadata sample row that is not a JSON object ([`4ba521e`](https://github.com/vpndetection-io/sdk-rust/commit/4ba521e6842420e5bf09dbd00e6e21f76c910f32))
+
 ## 5.9.4 - 2026-10-30
 
 ### Fixes
