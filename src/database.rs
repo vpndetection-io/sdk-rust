@@ -27,7 +27,7 @@ impl<'a> DatabaseApi<'a> {
     /// The dataset FAMILIES your organization is licensed to download.
     ///
     /// A license covers a family while a download names one of its versions, so
-    /// the ids [`DatabaseApi::download`] and [`DatabaseApi::checksums`] take come from
+    /// the IDs [`DatabaseApi::download`] and [`DatabaseApi::checksums`] take come from
     /// [`Database::versions`] rather than from the family itself.
     pub async fn list(&self) -> Result<Vec<Database>, Error> {
         let response: DatabaseList = self.get("/api/v1/database/list", &[]).await?;
@@ -222,7 +222,7 @@ fn assert_whole_transfer(declared: Option<u64>, written: u64) -> Result<(), Erro
 }
 
 /// Not every database is built in every format: the `_provider` catalogs are keyed
-/// by provider id rather than by IP range, so no MMDB exists for them.
+/// by provider ID rather than by IP range, so no MMDB exists for them.
 ///
 /// `Display` comes from the generated enum now that the spec names it, so only
 /// the borrowed `&'static str` a query string wants is hand-written here.

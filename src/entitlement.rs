@@ -22,7 +22,7 @@ pub struct Entitlement {
 
 /// The credential itself.
 ///
-/// The key is never echoed back - only its id, which is what the console shows
+/// The key is never echoed back - only its ID, which is what the console shows
 /// and what you can act on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntitlementApikey {
