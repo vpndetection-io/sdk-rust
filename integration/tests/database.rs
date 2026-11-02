@@ -4,7 +4,7 @@
 //
 // The transfer is budgeted before it starts. Metadata publishes a size per
 // format, and that size is checked against the ceiling below FIRST, so a
-// mistaken dataset id can never quietly pull one of the gigabyte datasets
+// mistaken dataset ID can never quietly pull one of the gigabyte datasets
 // through CI.
 
 use std::collections::BTreeSet;
@@ -28,7 +28,7 @@ const FORMAT: DatabaseFormat = DatabaseFormat::Csvgz;
 /// when a transfer must not go ahead.
 const CEILING: i64 = 8 << 20;
 
-/// A real catalogue id the max organization holds no license for.
+/// A real catalogue ID the max organization holds no license for.
 const UNLICENSED: &str = "hosting_ip_v1";
 
 #[tokio::test]
@@ -80,7 +80,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
             }
         }
         // The point of the family shape: a license covers the family, and these
-        // are the ids the download and checksum calls take. Before the spec was
+        // are the IDs the download and checksum calls take. Before the spec was
         // corrected this list did not exist, so list() could not tell a caller
         // what to download.
         assert!(!dataset.versions.is_empty(), "{} carries no versions", dataset.base);

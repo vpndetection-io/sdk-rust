@@ -29,7 +29,7 @@ serde_with = { version = "3", default-features = false, features = ["macros", "s
 # The PKCE challenge, SHA-256 over the verifier.
 sha2 = { version = "0.11", default-features = false }
 # The generated wire models carry `format: uuid` fields, which the generator
-# emits as `uuid::Uuid`. The idiomatic types keep those ids as `String`, so this
+# emits as `uuid::Uuid`. The idiomatic types keep those IDs as `String`, so this
 # stays out of the crate's public surface.
 uuid = { version = "1", features = ["serde"] }
 tokio = { version = "1.53.3", features = ["fs", "io-util", "sync", "time"] }

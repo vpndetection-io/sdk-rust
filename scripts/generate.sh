@@ -51,7 +51,7 @@ NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 # build error but a reference to a type nobody generated.
 #
 # The `format: uuid` fields this pulls in are why `uuid` is a dependency. The
-# idiomatic types in src/ still expose those ids as `String` - a caller passes
+# idiomatic types in src/ still expose those IDs as `String` - a caller passes
 # them through - so the crate's public surface does not require the dep.
 
 rm -rf .gen
