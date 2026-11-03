@@ -11,7 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// Database : One database FAMILY, with your organization's license beside it. A license covers the family, while a download names a specific version, so the ids you pass to the download and checksum endpoints come from `versions`.
+/// Database : One database FAMILY, with your organization's license beside it. A license covers the family, while a download names a specific version, so the IDs you pass to the download and checksum endpoints come from `versions`.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Database {
     /// The database family, e.g. `vpn_ip`. What the license is held against.
@@ -49,7 +49,7 @@ pub struct Database {
 }
 
 impl Database {
-    /// One database FAMILY, with your organization's license beside it. A license covers the family, while a download names a specific version, so the ids you pass to the download and checksum endpoints come from `versions`.
+    /// One database FAMILY, with your organization's license beside it. A license covers the family, while a download names a specific version, so the IDs you pass to the download and checksum endpoints come from `versions`.
     pub fn new(
         base: String,
         name: String,

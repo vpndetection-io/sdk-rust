@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseVersion {
-    /// The versioned database id, e.g. `vpn_ip_v1`. Pass this to download.
+    /// The versioned database ID, e.g. `vpn_ip_v1`. Pass this to download.
     #[serde(rename = "id")]
     pub id: String,
     #[serde(rename = "version")]

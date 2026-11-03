@@ -11,7 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// EntitlementApikey : The credential itself. The key is never echoed - only its id, which is what the console shows and what you can act on.
+/// EntitlementApikey : The credential itself. The key is never echoed - only its ID, which is what the console shows and what you can act on.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntitlementApikey {
     #[serde(rename = "id")]
@@ -25,7 +25,7 @@ pub struct EntitlementApikey {
 }
 
 impl EntitlementApikey {
-    /// The credential itself. The key is never echoed - only its id, which is what the console shows and what you can act on.
+    /// The credential itself. The key is never echoed - only its ID, which is what the console shows and what you can act on.
     pub fn new(
         id: uuid::Uuid,
         expires: Option<chrono::DateTime<chrono::FixedOffset>>,
