@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.9.6 - 2026-11-04
+
+### Fixes
+
+- Fail only the address of a batch entry the answer cannot read ([`438f74f`](https://github.com/vpndetection-io/sdk-rust/commit/438f74f408ff3dd87e721082ae0868dae95d97b6))
+
 ## 5.9.5 - 2026-11-02
 
 ### Fixes
