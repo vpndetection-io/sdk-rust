@@ -5,6 +5,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use indexmap::IndexMap;
 use moka::future::Cache;
+use serde::Deserialize;
 
 use crate::bogon::{bogon_lookup, is_bogon, unmapped};
 use crate::database::DatabaseApi;
@@ -12,7 +13,7 @@ use crate::entitlement::Entitlement;
 use crate::error::{Error, ErrorKind};
 use crate::flight::{Flights, restate};
 use crate::lookup::Lookup;
-use crate::models::{BatchLookupRequest, BatchLookupResponse, LookupResponse};
+use crate::models::{BatchLookupError, BatchLookupRequest, LookupResponse};
 use crate::oauth::{OauthApi, OauthError};
 use crate::transport::{Transport, encode_path_segment};
 
@@ -339,7 +340,7 @@ impl Client {
         timeout: Duration,
     ) -> Vec<(String, Result<Lookup, Error>)> {
         let request = BatchLookupRequest { ips: chunk.clone() };
-        let answered: Result<BatchLookupResponse, Error> =
+        let answered: Result<BatchAnswer, Error> =
             with_retry(retries, || self.0.transport.post_json("/batch", &request, timeout)).await;
         let mut body = match answered {
             Ok(body) => body,
@@ -348,13 +349,24 @@ impl Client {
         let mut out = Vec::with_capacity(chunk.len());
         for ip in chunk {
             let answer = if let Some(served) = body.results.remove(&ip) {
-                let lookup = Lookup::served(served);
-                if let Some(cache) = &self.0.cache {
-                    cache.insert(ip.clone(), lookup.clone()).await;
+                match serde_json::from_value::<LookupResponse>(served) {
+                    Ok(served) => {
+                        let lookup = Lookup::served(served);
+                        if let Some(cache) = &self.0.cache {
+                            cache.insert(ip.clone(), lookup.clone()).await;
+                        }
+                        Ok(lookup)
+                    }
+                    Err(err) => Err(unreadable_entry(&ip, &err)),
                 }
-                Ok(lookup)
             } else if let Some(failed) = body.errors.remove(&ip) {
-                Err(Error::from_entry(u16::try_from(failed.status).unwrap_or(500), &failed.error))
+                match serde_json::from_value::<BatchLookupError>(failed) {
+                    Ok(failed) => Err(Error::from_entry(
+                        u16::try_from(failed.status).unwrap_or(500),
+                        &failed.error,
+                    )),
+                    Err(err) => Err(unreadable_entry(&ip, &err)),
+                }
             } else {
                 Err(Error::Api {
                     kind: ErrorKind::ServerError,
@@ -563,6 +575,28 @@ impl ClientBuilder {
             retries: self.retries.unwrap_or(DEFAULT_RETRIES),
             timeout,
         })))
+    }
+}
+
+/// A batch answer whose entries are read one at a time, so an entry this
+/// version cannot read fails only its own address. Both maps must be objects,
+/// or the chunk is an answer the call cannot read and is retried whole. Through
+/// 5.9.5 one unreadable entry failed every address in its chunk, retried.
+#[derive(Deserialize)]
+struct BatchAnswer {
+    results: HashMap<String, serde_json::Value>,
+    errors: HashMap<String, serde_json::Value>,
+}
+
+/// An entry of a readable batch answer that is no answer for its address: the
+/// server error a 2xx the call cannot read is, carrying 200 as an address the
+/// answer left out does.
+fn unreadable_entry(ip: &str, err: &serde_json::Error) -> Error {
+    Error::Api {
+        kind: ErrorKind::ServerError,
+        message: format!("could not decode the batch answer for {ip}: {err}"),
+        status: 200,
+        retry_after: None,
     }
 }
 

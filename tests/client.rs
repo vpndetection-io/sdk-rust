@@ -519,12 +519,70 @@ async fn an_answer_a_call_cannot_read_is_a_retried_server_error() {
                 let Err(err) = outcome else { panic!("{call}, {name}: returned an answer") };
                 assert_eq!(err.kind(), ErrorKind::ServerError, "{call}, {name}: {err}");
                 assert_eq!(err.status(), Some(200), "{call}, {name}: the status");
-                assert_eq!(stub.count(), 3, "{call}, {name}: retried like an outage");
+                // A batch answer whose maps read fails only the entry it cannot
+                // read, which is not sent again.
+                let sends = if call == "lookup_batch" && name == "entries without their members" {
+                    1
+                } else {
+                    3
+                };
+                assert_eq!(stub.count(), sends, "{call}, {name}: retried like an outage");
             });
         }
     }
     while let Some(case) = cases.join_next().await {
         case.expect("case");
+    }
+}
+
+/// A batch entry, or an entry's error, this version cannot read is that
+/// address's error alone: the rest of the chunk is answered, and the chunk is
+/// sent once. Through 5.9.5 one failed every address in its chunk, retried.
+#[tokio::test]
+async fn a_batch_entry_it_cannot_read_fails_only_its_address() {
+    const SERVED: &str = r#""8.8.4.4":{"ip":"8.8.4.4","is_vpn":false}"#;
+    let entries = [
+        (
+            "a member of the wrong type",
+            format!(
+                r#""results":{{"9.9.9.9":{{"ip":"9.9.9.9","is_vpn":"yes"}},{SERVED}}},"errors":{{}}"#
+            ),
+        ),
+        (
+            "an entry without its members",
+            format!(r#""results":{{"9.9.9.9":{{}},{SERVED}}},"errors":{{}}"#),
+        ),
+        ("a null entry", format!(r#""results":{{"9.9.9.9":null,{SERVED}}},"errors":{{}}"#)),
+        (
+            "an entry that is no object",
+            format!(r#""results":{{"9.9.9.9":5,{SERVED}}},"errors":{{}}"#),
+        ),
+        (
+            "an entry error that is no object",
+            format!(r#""results":{{{SERVED}}},"errors":{{"9.9.9.9":5}}"#),
+        ),
+        (
+            "an entry error without its status",
+            format!(r#""results":{{{SERVED}}},"errors":{{"9.9.9.9":{{"error":"x"}}}}"#),
+        ),
+    ];
+    for (name, entries) in entries {
+        let stub = Stub::start([]).await;
+        stub.sequence("/batch", [Route::ok(format!("{{{entries}}}"))]);
+        let client = stub.client().api_key("key").retries(2).build().expect("build");
+
+        let mut answers = client.lookup_batch(["9.9.9.9", "8.8.4.4"], BatchOptions::new()).await;
+
+        let Err(err) = answers.swap_remove("9.9.9.9").expect("answered") else {
+            panic!("{name}: read as an answer")
+        };
+        assert_eq!(err.kind(), ErrorKind::ServerError, "{name}: {err}");
+        assert_eq!(err.status(), Some(200), "{name}: the status");
+        let served = answers.swap_remove("8.8.4.4").expect("answered").expect(name);
+        assert!(!served.is_vpn, "{name}: the other entry");
+        assert_eq!(stub.count(), 1, "{name}: the chunk sent again");
+        client.lookup("8.8.4.4").await.expect("the served entry, from the cache");
+        assert_eq!(stub.count(), 1, "{name}: the served entry was not cached");
     }
 }
 
