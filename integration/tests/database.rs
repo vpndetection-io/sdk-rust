@@ -85,7 +85,7 @@ async fn the_licensed_catalogue_answers_the_schema_the_client_was_generated_from
         // what to download.
         assert!(!dataset.versions.is_empty(), "{} carries no versions", dataset.base);
         for version in &dataset.versions {
-            assert!(!version.id.is_empty(), "{} has a version with no id", dataset.base);
+            assert!(!version.id.is_empty(), "{} has a version with no ID", dataset.base);
             assert!(!version.formats.is_empty(), "{} carries no formats", version.id);
             ids.push(version.id.clone());
         }

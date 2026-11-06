@@ -829,7 +829,7 @@ async fn the_database_list_unwraps_a_family_and_its_versions() {
     assert_eq!(databases[0].base, "vpn_ip");
     assert_eq!(databases[0].standing, Standing::Licensed);
     let version = &databases[0].versions[0];
-    assert_eq!(version.id, "vpn_ip_extended_v1", "the id a download takes lives on the VERSION");
+    assert_eq!(version.id, "vpn_ip_extended_v1", "the ID a download takes lives on the VERSION");
     assert_eq!(version.version, 1);
     assert_eq!(version.formats[0].format, DatabaseFormat::Mmdb);
     assert_eq!(version.sample_formats.as_deref(), Some([DatabaseFormat::Csvgz].as_slice()));
