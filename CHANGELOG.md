@@ -2,6 +2,16 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.10.0 - 2026-11-07
+
+### Features
+
+- Download the build a database.updated webhook names ([`aedb8fb`](https://github.com/vpndetection-io/sdk-rust/commit/aedb8fb470717f519015b03301bb368dde23d0ea))
+
+### Fixes
+
+- Re-pin the spec to 2026.11.05: the download's build parameter ([`b898c4c`](https://github.com/vpndetection-io/sdk-rust/commit/b898c4c518d9f388fca8dc133b4101f734d1e57c))
+
 ## 5.9.6 - 2026-11-04
 
 ### Fixes
