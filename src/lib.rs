@@ -68,7 +68,7 @@ pub(crate) use generated::models;
 
 pub use bogon::is_bogon;
 pub use client::{BatchOptions, Client, ClientBuilder, DEFAULT_BASE_URL, LookupOptions};
-pub use database::DatabaseApi;
+pub use database::{DatabaseApi, DownloadOptions};
 pub use entitlement::{Entitlement, EntitlementApikey, EntitlementPlan, EntitlementUsage};
 pub use error::{Error, ErrorKind};
 pub use lookup::Lookup;

@@ -90,6 +90,12 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
         .download("vpn_ip_extended_v1", DatabaseFormat::Mmdb, "./vpn_ip.mmdb")
         .await?;
 
+    let (dataset, build) = ("vpn_ip_extended_v1", "20261105.0t53s5");
+    let path = format!("./{dataset}.mmdb");
+    let options = vpndetection::DownloadOptions::new().build(build);
+    let written =
+        client.database().download_with(dataset, DatabaseFormat::Mmdb, &path, options).await?;
+
     result.is_hosting.unwrap_or(false);
     result.is_hosting.is_none();
     Ok(())

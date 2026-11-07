@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use support::{Route, Stub};
-use vpndetection::{DatabaseFormat, ErrorKind};
+use vpndetection::{DatabaseFormat, DownloadOptions, ErrorKind};
 
 const DATASET: &str = "cdn_ip_v1";
 const KEY: &str = "test-api-key-never-real";
@@ -218,6 +218,57 @@ async fn a_dataset_the_organization_does_not_license_is_refused_once() {
     assert_eq!(err.message(), "NOT_LICENSED", "the API's own reason went unread");
     assert_eq!(stub.count(), 1, "a 4xx must be issued exactly once");
     assert!(!path.exists() && !partial_of(&path).exists(), "a refusal wrote something to disk");
+}
+
+#[tokio::test]
+async fn each_download_asks_for_the_build_it_is_given() {
+    let stub = serving(Route::ok(payload())).await;
+    let client = stub.client().api_key(KEY).build().expect("build");
+    let scratch = Scratch::new("build");
+    let build = || DownloadOptions::new().build("20261105.0t53s5");
+    let db = client.database();
+
+    db.download_url(DATASET, DatabaseFormat::Csvgz).await.expect("live link");
+    db.download_url_with(DATASET, DatabaseFormat::Csvgz, build()).await.expect("link");
+    db.download_with(DATASET, DatabaseFormat::Csvgz, scratch.join("build.csv.gz"), build())
+        .await
+        .expect("download");
+    db.download_bytes_with(DATASET, DatabaseFormat::Csvgz, build()).await.expect("bytes");
+
+    let minted: Vec<String> = stub
+        .requests()
+        .iter()
+        .filter(|call| call.path == "/api/v1/database/download")
+        .map(|call| call.header("x-stub-target").unwrap_or_default().to_owned())
+        .collect();
+    let live = "/api/v1/database/download?id=cdn_ip_v1&format=csvgz";
+    let pinned = format!("{live}&build=20261105.0t53s5");
+    assert_eq!(minted, [live.to_owned(), pinned.clone(), pinned.clone(), pinned]);
+}
+
+/// A pruned build is gone for good, so asking again cannot help.
+#[tokio::test]
+async fn a_build_no_longer_kept_is_a_bad_request_with_its_410_sent_once() {
+    let stub = Stub::start([(
+        "/api/v1/database/download".to_owned(),
+        Route::json(410, r#"{"rc":"BUILD_GONE"}"#),
+    )])
+    .await;
+    let client = stub.client().api_key(KEY).retries(3).build().expect("build");
+
+    let err = client
+        .database()
+        .download_bytes_with(
+            DATASET,
+            DatabaseFormat::Csvgz,
+            DownloadOptions::new().build("20261029.abc123"),
+        )
+        .await
+        .expect_err("a build no longer kept must be refused");
+
+    assert_eq!(err.kind(), ErrorKind::BadRequest);
+    assert_eq!(err.status(), Some(410));
+    assert_eq!(stub.count(), 1, "a 410 must be issued exactly once");
 }
 
 /// Object storage refusing a lapsed link is a different failure from the API

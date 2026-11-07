@@ -74,7 +74,20 @@ impl<'a> DatabaseApi<'a> {
     /// runs to gigabytes; the link authorizes the START of a transfer, so one
     /// already running is not interrupted when it lapses.
     pub async fn download_url(&self, id: &str, format: Format) -> Result<String, Error> {
-        let query = [("id", id), ("format", format.as_str())];
+        self.download_url_with(id, format, DownloadOptions::default()).await
+    }
+
+    /// [`DatabaseApi::download_url`], for the build `opts` names.
+    pub async fn download_url_with(
+        &self,
+        id: &str,
+        format: Format,
+        opts: DownloadOptions,
+    ) -> Result<String, Error> {
+        let mut query = vec![("id", id), ("format", format.as_str())];
+        if let Some(build) = &opts.build {
+            query.push(("build", build));
+        }
         with_retry(self.client.retries(), || {
             self.client.transport().get_redirect(
                 "/api/v1/database/download",
@@ -98,9 +111,20 @@ impl<'a> DatabaseApi<'a> {
         format: Format,
         path: impl AsRef<Path>,
     ) -> Result<u64, Error> {
+        self.download_with(id, format, path, DownloadOptions::default()).await
+    }
+
+    /// [`DatabaseApi::download`], for the build `opts` names.
+    pub async fn download_with(
+        &self,
+        id: &str,
+        format: Format,
+        path: impl AsRef<Path>,
+        opts: DownloadOptions,
+    ) -> Result<u64, Error> {
         let path = path.as_ref();
         let partial = partial_path(path);
-        let response = self.fetch_file(id, format).await?;
+        let response = self.fetch_file(id, format, opts).await?;
 
         let outcome = match stream_to_file(response, &partial).await {
             Ok(written) => {
@@ -125,7 +149,17 @@ impl<'a> DatabaseApi<'a> {
     /// a parser, and use [`DatabaseApi::download`] for anything you have not
     /// measured.
     pub async fn download_bytes(&self, id: &str, format: Format) -> Result<Vec<u8>, Error> {
-        let mut response = self.fetch_file(id, format).await?;
+        self.download_bytes_with(id, format, DownloadOptions::default()).await
+    }
+
+    /// [`DatabaseApi::download_bytes`], for the build `opts` names.
+    pub async fn download_bytes_with(
+        &self,
+        id: &str,
+        format: Format,
+        opts: DownloadOptions,
+    ) -> Result<Vec<u8>, Error> {
+        let mut response = self.fetch_file(id, format, opts).await?;
         let declared = response.content_length();
         // Allocated once from the declared length. A Vec grows by doubling, so
         // the last grow of a large dataset alone costs twice the file. Reserved
@@ -157,8 +191,13 @@ impl<'a> DatabaseApi<'a> {
     // redirect guard, because the presigned URL authorizes itself and
     // forwarding the API key would hand a credential to a host with no business
     // holding it. Transport::get_file builds that request without one.
-    async fn fetch_file(&self, id: &str, format: Format) -> Result<reqwest::Response, Error> {
-        let url = self.download_url(id, format).await?;
+    async fn fetch_file(
+        &self,
+        id: &str,
+        format: Format,
+        opts: DownloadOptions,
+    ) -> Result<reqwest::Response, Error> {
+        let url = self.download_url_with(id, format, opts).await?;
         with_retry(self.client.retries(), || self.client.transport().get_file(&url)).await
     }
 
@@ -171,6 +210,28 @@ impl<'a> DatabaseApi<'a> {
             self.client.transport().get_json(path, query, self.client.timeout())
         })
         .await
+    }
+}
+
+/// Which file one download fetches, for [`DatabaseApi::download_url_with`],
+/// [`DatabaseApi::download_with`] and [`DatabaseApi::download_bytes_with`].
+#[derive(Debug, Clone, Default)]
+pub struct DownloadOptions {
+    build: Option<String>,
+}
+
+impl DownloadOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// One build of the dataset, by the name a `database.updated` webhook gives
+    /// it, so the file is the one whose `sha256` the webhook carries. Without
+    /// it, the build that is live. A build is kept 7 days; one pruned since is
+    /// a `BadRequest` with status 410, sent once.
+    pub fn build(mut self, build: impl Into<String>) -> Self {
+        self.build = Some(build.into());
+        self
     }
 }
 
