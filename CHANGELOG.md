@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.12.0 - 2026-11-11
+
+### Features
+
+- Add trial_expired for a trial key's answers, and re-pin the spec ([`cc6ac39`](https://github.com/vpndetection-io/sdk-rust/commit/cc6ac3912034777c2d9951192c9a263307befa09))
+
 ## 5.11.2 - 2026-11-11
 
 ### Fixes
