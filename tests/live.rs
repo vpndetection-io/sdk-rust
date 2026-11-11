@@ -1,6 +1,6 @@
 // A smoke test against the real API, ignored by default so `cargo test` stays
-// offline and costs no quota. Set VPNDETECTION_API_KEY to exercise a paid plan's
-// fields; without one it runs on the free tier.
+// offline and costs no quota. Set VPNDETECTION_API_KEY to exercise a key's
+// fields; without one it runs without a key.
 //
 //     cargo test --test live -- --ignored --nocapture
 
@@ -31,8 +31,8 @@ async fn live_lookup() {
     assert!(!clean.is_vpn, "1.1.1.1 should not be VPN infrastructure");
 
     if key.is_none() {
-        // The one assertion a stub cannot make honestly: the free tier does not
-        // include is_hosting, so it is ABSENT rather than false.
-        assert_eq!(clean.is_hosting, None, "the free tier does not include is_hosting");
+        // The one assertion a stub cannot make honestly: an answer without a key
+        // does not include is_hosting, so it is ABSENT rather than false.
+        assert_eq!(clean.is_hosting, None, "an answer without a key does not include is_hosting");
     }
 }

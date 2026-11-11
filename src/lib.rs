@@ -3,8 +3,9 @@
 //! hosting servers, CDNs and relays.
 //!
 //! Start with [`Client::new`] and [`Client::lookup`]. No API key is needed:
-//! without one, a lookup answers `ip` and `is_vpn`, up to 1000 a day per source
-//! address.
+//! without one a lookup answers `ip`, `is_vpn`, the Tor and relay members,
+//! `location` and `asn`, up to 60 a minute from each address, and a batch is
+//! refused as unauthorized.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), vpndetection::Error> {
@@ -18,7 +19,7 @@
 //!
 //! # Absent is not false
 //!
-//! Every field beyond `ip` and `is_vpn` is an [`Option`], because your plan
+//! Every field beyond `ip` and `is_vpn` is an [`Option`], because your key
 //! decides which of them the API sends. `None` means "not in your plan", which
 //! is a different answer from `Some(false)`. Read the option itself wherever
 //! that matters, or `unwrap_or(false)` when all you want to know is whether an

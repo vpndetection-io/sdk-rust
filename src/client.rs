@@ -69,7 +69,9 @@ struct Inner {
 
 impl Client {
     /// A client with no API key, against production. Without a key a lookup
-    /// answers `ip` and `is_vpn`, up to 1000 a day per source address.
+    /// answers `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`,
+    /// up to 60 a minute from each address, and a batch is refused as
+    /// unauthorized.
     pub fn new() -> Result<Self, Error> {
         Self::builder().build()
     }
@@ -208,7 +210,8 @@ impl Client {
     /// error as its value, so one bad entry cannot lose the rest of the answers:
     /// the API reports a per-entry failure with the status the single lookup
     /// would have answered, and a chunk that fails as a whole marks every
-    /// address in it.
+    /// address in it. `POST /batch` needs an API key, a free one included:
+    /// without one, every address sent to it carries an unauthorized error.
     pub async fn lookup_batch<I, S>(
         &self,
         ips: I,

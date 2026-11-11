@@ -141,7 +141,7 @@ async fn look_up(rung: &'static Rung) -> Answer {
 
     // Checked HERE rather than in one test, so no comparison anywhere can be made
     // against a tier that silently ran unauthenticated: an unsent key answers the
-    // free shape, which satisfies every containment check vacuously.
+    // keyless shape, which satisfies every containment check vacuously.
     if rung.secret.is_some() {
         assert!(recorder.carried_key(), "{}: the key never reached the wire", rung.tier);
     }

@@ -10,14 +10,14 @@
 
 use std::collections::BTreeSet;
 
-use vpndetection::BatchOptions;
+use vpndetection::{BatchOptions, ErrorKind};
 use vpndetection_integration::{
     MEMBERS, PROBE, RUNGS, STAGING, answer_for, assert_served_by_tier, client_fields, client_for,
     ladder_skip, observable, skip_unless,
 };
 
 #[tokio::test]
-async fn an_unauthenticated_lookup_answers_ip_and_is_vpn() {
+async fn a_lookup_without_a_key_answers_ip_and_is_vpn_at_the_least() {
     let answer = answer_for(&RUNGS[0]).await;
 
     assert_eq!(answer.wire.get("ip").and_then(|v| v.as_str()), Some(PROBE));
@@ -143,8 +143,26 @@ async fn a_bogon_is_answered_without_touching_the_network() {
 }
 
 #[tokio::test]
-async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
+async fn a_batch_without_a_key_is_refused_once_and_its_bogon_still_answered() {
     let (client, recorder) = client_for(&RUNGS[0]).await;
+
+    let answers = client.lookup_batch([PROBE, "10.0.0.1"], BatchOptions::new()).await;
+
+    let bogon = answers["10.0.0.1"].as_ref().expect("10.0.0.1 was not answered locally");
+    assert!(bogon.is_bogon);
+    let refused = answers[PROBE].as_ref().expect_err("a batch without a key must fail");
+    assert_eq!(refused.kind(), ErrorKind::Unauthorized);
+    assert_eq!(refused.status(), Some(401));
+    assert!(!refused.retryable());
+    let paths: Vec<String> = recorder.facts().iter().map(|fact| fact.path.clone()).collect();
+    assert_eq!(paths, ["/batch"], "one request, never retried");
+}
+
+#[tokio::test]
+async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
+    // A batch needs a key, and the free one is the cheapest that has it.
+    skip_unless!(RUNGS[1].skip_reason());
+    let (client, recorder) = client_for(&RUNGS[1]).await;
 
     let answers = client
         .lookup_batch([PROBE, "8.8.8.8", PROBE, "10.0.0.1", "8.8.8.8"], BatchOptions::new())
@@ -167,6 +185,7 @@ async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
         "a batch is sent to POST /batch alone"
     );
     for fact in &facts {
+        assert!(fact.carried_key, "the free key never reached the wire");
         let distinct: BTreeSet<&String> = fact.ips.iter().collect();
         assert_eq!(distinct.len(), fact.ips.len(), "a chunk repeated an address: {:?}", fact.ips);
     }

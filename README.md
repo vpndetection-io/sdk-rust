@@ -18,25 +18,12 @@ Requires Rust 1.85 or newer. Everything is `async` and runs on tokio.
 
 ## Usage
 
-**No API key needed to start.** Without a key, a lookup answers `ip` and `is_vpn`, up to 1000 a day per source address.
+**No API key needed to start.** Without a key a lookup answers `ip`, `is_vpn`, Tor and relay detection, `location` and `asn`, with no daily or monthly cap: up to 60 lookups a minute from each address.
 
 ```rust
 use vpndetection::Client;
 
 let client = Client::new()?;
-
-let result = client.lookup("45.83.91.1").await?;
-println!("{}", result.is_vpn);   // true
-```
-
-### With an API key
-
-A free key adds Tor and relay detection, where the address is and the AS that announces it. Every paid plan answers every field, the same on each, and the plans differ only in how many lookups they include. Create a key in the [console](https://app.vpndetection.io), then pass it in:
-
-```rust
-let client = Client::builder()
-    .api_key(std::env::var("VPNDETECTION_API_KEY")?)
-    .build()?;
 
 let result = client.lookup("45.83.91.1").await?;
 println!("{}", result.is_vpn);                  // true
@@ -46,7 +33,20 @@ if let Some(location) = result.location.as_deref() {
 if let Some(asn) = result.asn.as_deref() {
     println!("{}", asn.name);                   // who runs the announcing network
 }
-println!("{:?}", result.is_hosting);            // Some(true), on a paid plan
+```
+
+### With an API key
+
+A free key adds every other flag, `is_hosting`, `is_cdn` and the four proxy flags, at 50,000 lookups a month, and every paid plan answers every field, the provider, confidence and last-seen detail behind each flag included. The paid plans differ only in how many lookups they include. Batch lookups need a key. Create one in the [console](https://app.vpndetection.io), then pass it in:
+
+```rust
+let client = Client::builder()
+    .api_key(std::env::var("VPNDETECTION_API_KEY")?)
+    .build()?;
+
+let result = client.lookup("45.83.91.1").await?;
+println!("{}", result.is_vpn);                  // true
+println!("{:?}", result.is_hosting);            // Some(true), with any key, a free one included
 
 if let Some(vpn) = result.vpn.as_deref() {
     println!("{:?}", vpn.provider);             // Some("nordvpn"), on a paid plan
@@ -91,7 +91,7 @@ Usage counts against the anniversary of your subscription, not the calendar mont
 
 ### Batch lookup
 
-Look up many addresses at once. Bogons and cached answers are handled locally, and everything else goes to the batch endpoint in chunks of up to 1000 addresses, in parallel:
+Look up many addresses at once. Bogons and cached answers are handled locally, and everything else goes to the batch endpoint in chunks of up to 1000 addresses, in parallel. The batch endpoint needs an API key, a free one included:
 
 ```rust
 use vpndetection::BatchOptions;
@@ -184,7 +184,7 @@ match client.lookup("1.1.1.1").await {
 
 `kind()` is one of `BadRequest`, `Unauthorized`, `Forbidden`, `RateLimited`, `QuotaExceeded`, `ServerError`, `Network` or `Io`, the last of which is a database transfer that could not be written or that ended early.
 
-Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not the same thing. A rate limit is when the API faces extreme traffic bursts and so retrying later works; but a spent quota needs your allowance raised or the window to roll over. The library retries rate limits for you, but not if your quota is exceeded.
+Note that `RateLimited` and `QuotaExceeded` both arrive as HTTP 429 and are not the same thing. A rate limit is when the API faces extreme traffic bursts, or a lookup without a key passes 60 a minute, and so retrying later works; but a spent quota needs your allowance raised or the window to roll over. The library retries rate limits for you, but not if your quota is exceeded.
 
 ### Database downloads
 
@@ -290,11 +290,12 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-Without a key only `ip` and `is_vpn` come back, and a free key adds Tor, relay, `location` and `asn`. Every field beyond `ip` and `is_vpn` is an `Option`, because your plan decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+Without a key a lookup leaves out `is_hosting`, `is_cdn` and the four proxy flags, and a free key leaves out `vpn` and the detail behind each flag. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag
-result.is_hosting.is_none();          // not in your plan
+result.is_hosting.is_none();          // without a key: not in your plan
+result.vpn.is_none();                 // on a free key: not in your plan
 ```
 
 ## Other Libraries
