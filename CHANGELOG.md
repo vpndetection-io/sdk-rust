@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.12.1 - 2026-11-11
+
+### Fixes
+
+- Say the free plan's daily trial and Unlimited, the free plan, and re-pin the spec ([`159b055`](https://github.com/vpndetection-io/sdk-rust/commit/159b0553fe7d2edd6a7d37d31e4129a3a1adb21f))
+
 ## 5.12.0 - 2026-11-11
 
 ### Features
