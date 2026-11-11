@@ -44,8 +44,8 @@ pub type Warn = Arc<dyn Fn(&str) + Send + Sync>;
 /// How a middleware behaves.
 ///
 /// Everything is optional except that you almost certainly want an
-/// [`Options::api_key`]: without one, lookups are limited to 60 a minute from
-/// each source address, and a server is one source address.
+/// [`Options::api_key`]: without one a lookup leaves out the hosting, CDN and
+/// proxy flags.
 #[derive(Clone)]
 pub struct Options {
     /// An existing client to use. Prefer this if you already hold one: two

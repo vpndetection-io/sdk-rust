@@ -70,8 +70,7 @@ struct Inner {
 impl Client {
     /// A client with no API key, against production. Without a key a lookup
     /// answers `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`,
-    /// up to 60 a minute from each address, and a batch is refused as
-    /// unauthorized.
+    /// with no daily or monthly cap, and a batch is refused as unauthorized.
     pub fn new() -> Result<Self, Error> {
         Self::builder().build()
     }
