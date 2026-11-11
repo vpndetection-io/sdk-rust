@@ -18,7 +18,7 @@ Requires Rust 1.85 or newer. Everything is `async` and runs on tokio.
 
 ## Usage
 
-**No API key needed to start.** The Unlimited tier answers `ip`, `is_vpn`, Tor and relay detection, `location` and `asn`, with no daily or monthly cap, with a key or without one.
+**No API key needed to start.** Unlimited, the free plan, answers `ip`, `is_vpn`, Tor and relay detection, `location` and `asn`, with no daily or monthly cap, with a key or without one.
 
 ```rust
 use vpndetection::Client;
@@ -37,7 +37,7 @@ if let Some(asn) = result.asn.as_deref() {
 
 ### With an API key
 
-Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, and the provider, confidence and last-seen detail behind each flag. The plans differ only in how many lookups they include, and a new account can try every field, 100 lookups a day. Create a key in the [console](https://app.vpndetection.io), then pass it in:
+Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, and the provider, confidence and last-seen detail behind each flag. The plans differ only in how many lookups they include, and a free account tries every field, 100 lookups a day. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -85,7 +85,7 @@ println!("{}", acct.usage.requests);      // 580
 println!("{}", acct.usage.window_end);    // when the allowance resets
 ```
 
-Usage counts against the anniversary of your subscription on a paid plan, not the calendar month and not the billing period, and against the UTC day on a trial key; it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
+Usage counts against the anniversary of your subscription on a paid plan, not the calendar month and not the billing period, and against the UTC day on the free plan; it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
 
 `my_ip_with` and `my_entitlement_with` take this call's own retry budget and timeout, the same as `lookup_with`.
 
@@ -290,12 +290,12 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-The Unlimited tier leaves out `is_hosting`, `is_cdn` and the four proxy flags, and of the detail behind each flag it answers only Tor's and relay's; a trial key's answer carries `trial_expired`, true once its day of full answers is spent. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+Unlimited leaves out `is_hosting`, `is_cdn` and the four proxy flags, and of the detail behind each flag it answers only Tor's and relay's; a free-plan key's answer carries `trial_expired`, true once its daily trial is spent. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag
-result.is_hosting.is_none();          // on the Unlimited tier: not in your plan
-result.trial_expired == Some(true); // a trial key's day of full answers is spent
+result.is_hosting.is_none();          // on Unlimited: not in your plan
+result.trial_expired == Some(true); // a free-plan key's daily trial is spent
 ```
 
 ## Other Libraries

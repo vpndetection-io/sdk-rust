@@ -84,14 +84,14 @@ async fn each_tier_serves_a_superset_of_the_tier_below() {
 }
 
 #[tokio::test]
-async fn a_trial_keys_answer_is_a_paid_one_or_unlimiteds_and_says_which() {
+async fn a_free_plan_keys_answer_is_a_paid_one_or_unlimiteds_and_says_which() {
     skip_unless!(RUNGS[1].skip_reason());
     let wire = &answer_for(&RUNGS[1]).await.wire;
 
     let expired = wire
         .get("trial_expired")
         .and_then(|value| value.as_bool())
-        .expect("a trial key answers trial_expired");
+        .expect("a free-plan key answers trial_expired");
     // The organization's first 100 lookups of the UTC day are answered in full,
     // and the rest as Unlimited's: which half a run sees depends on the day.
     assert_eq!(
@@ -102,14 +102,14 @@ async fn a_trial_keys_answer_is_a_paid_one_or_unlimiteds_and_says_which() {
 }
 
 #[tokio::test]
-async fn a_trial_keys_batch_of_two_is_refused_as_a_bad_request_once() {
+async fn a_free_plan_keys_batch_of_two_is_refused_as_a_bad_request_once() {
     skip_unless!(RUNGS[1].skip_reason());
     let (client, recorder) = client_for(&RUNGS[1]).await;
 
     let answers = client.lookup_batch([PROBE, "8.8.8.8"], BatchOptions::new()).await;
 
     for ip in [PROBE, "8.8.8.8"] {
-        let refused = answers[ip].as_ref().expect_err("a trial key's batch of two must fail");
+        let refused = answers[ip].as_ref().expect_err("a free-plan key's batch of two must fail");
         assert_eq!(refused.kind(), ErrorKind::BadRequest);
         assert_eq!(refused.status(), Some(402));
         assert!(!refused.retryable());
@@ -119,7 +119,7 @@ async fn a_trial_keys_batch_of_two_is_refused_as_a_bad_request_once() {
 }
 
 #[tokio::test]
-async fn a_trial_keys_batch_of_one_is_answered() {
+async fn a_free_plan_keys_batch_of_one_is_answered() {
     skip_unless!(RUNGS[1].skip_reason());
     let (client, recorder) = client_for(&RUNGS[1]).await;
 
@@ -127,7 +127,7 @@ async fn a_trial_keys_batch_of_one_is_answered() {
 
     assert!(
         answers[PROBE].is_ok(),
-        "a trial key's batch of one failed: {:?}",
+        "a free-plan key's batch of one failed: {:?}",
         answers[PROBE].as_ref().err()
     );
     // Read off the wire, since the crate this suite resolves may predate the member.

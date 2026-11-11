@@ -1,7 +1,7 @@
 /*
  * VPNDetection API
  *
- * The VPNDetection API: classify any IP address, and download the databases behind the answers.  Lookups need no API key: the Unlimited tier answers any address with no daily or monthly cap, with a key or without one. Every paid plan answers every field, and an organization on no paid plan can try them, 100 lookups a day. Unlimited's answers may be used commercially, but not redistributed or used in a competing service (https://vpndetection.io/terms#no-key).  See https://docs.vpndetection.io for guides and https://github.com/vpndetection-io for the official client libraries.
+ * The VPNDetection API: classify any IP address, and download the databases behind the answers.  Lookups need no API key: Unlimited, the free plan, answers any address with no daily or monthly cap, with a key or without one. Every paid plan answers every field, and a free account tries them, 100 lookups a day. Unlimited's answers may be used commercially, but not redistributed or used in a competing service (https://vpndetection.io/terms#no-key).  See https://docs.vpndetection.io for guides and https://github.com/vpndetection-io for the official client libraries.
  *
  * The version of the OpenAPI document: 2026.11.11
  * Contact: support@vpndetection.io
@@ -75,7 +75,7 @@ pub struct LookupResponse {
     pub location: Option<Box<models::Location>>,
     #[serde(rename = "asn", skip_serializing_if = "Option::is_none")]
     pub asn: Option<Box<models::Asn>>,
-    /// On every answer to a trial key, an organization on no paid plan, and on no other: `false` while the organization's 100 full answers for the UTC day last, `true` once the answer is Unlimited's.
+    /// On every answer to a key on the free plan, and on no other: `false` while its organization's daily trial lasts (every field for the first 100 lookups each UTC day), `true` once the answer has Unlimited's.
     #[serde(rename = "trial_expired", skip_serializing_if = "Option::is_none")]
     pub trial_expired: Option<bool>,
 }
