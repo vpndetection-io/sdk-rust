@@ -74,6 +74,8 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             pubproxy: Some(Box::default()),
             location: Some(Box::default()),
             asn: Some(Box::default()),
+            // Only a trial key's answers carry it, and a bogon is answered here.
+            trial_expired: None,
         },
     }
 }

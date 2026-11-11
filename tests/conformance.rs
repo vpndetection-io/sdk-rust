@@ -234,10 +234,7 @@ async fn an_entry_error_is_classified_by_its_status() {
     let mut routes = Stub::ok_routes(&["1.1.1.1"]);
     routes.push((
         "/8.8.8.8".to_owned(),
-        Route::json(
-            429,
-            r#"{"error":"monthly request allowance spent; upgrade your plan for more lookups"}"#,
-        ),
+        Route::json(429, r#"{"error":"overage cap reached; raise or remove it in Billing"}"#),
     ));
     routes.push(("/9.9.9.9".to_owned(), Route::json(500, r#"{"error":"lookup failed"}"#)));
     let stub = Stub::start(routes).await;

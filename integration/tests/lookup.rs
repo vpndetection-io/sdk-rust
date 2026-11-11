@@ -50,7 +50,10 @@ async fn each_tier_serves_a_superset_of_the_tier_below() {
     let mut sets = Vec::new();
     for rung in observable() {
         let answer = answer_for(rung).await;
-        let fields: BTreeSet<String> = answer.wire.keys().cloned().collect();
+        // trial_expired marks a trial key's answers, and no other: it is not a
+        // field a tier serves.
+        let fields: BTreeSet<String> =
+            answer.wire.keys().filter(|field| *field != "trial_expired").cloned().collect();
         println!("{}: {} fields", answer.tier, fields.len());
         sets.push((answer.tier, answer.widens, fields));
     }
@@ -74,8 +77,65 @@ async fn each_tier_serves_a_superset_of_the_tier_below() {
                 );
             }
         }
-        below = Some(fields);
+        if *tier != "trial" {
+            below = Some(fields);
+        }
     }
+}
+
+#[tokio::test]
+async fn a_trial_keys_answer_is_a_paid_one_or_unlimiteds_and_says_which() {
+    skip_unless!(RUNGS[1].skip_reason());
+    let wire = &answer_for(&RUNGS[1]).await.wire;
+
+    let expired = wire
+        .get("trial_expired")
+        .and_then(|value| value.as_bool())
+        .expect("a trial key answers trial_expired");
+    // The organization's first 100 lookups of the UTC day are answered in full,
+    // and the rest as Unlimited's: which half a run sees depends on the day.
+    assert_eq!(
+        wire.contains_key("is_hosting"),
+        !expired,
+        "is_hosting is served exactly while the day lasts"
+    );
+}
+
+#[tokio::test]
+async fn a_trial_keys_batch_of_two_is_refused_as_a_bad_request_once() {
+    skip_unless!(RUNGS[1].skip_reason());
+    let (client, recorder) = client_for(&RUNGS[1]).await;
+
+    let answers = client.lookup_batch([PROBE, "8.8.8.8"], BatchOptions::new()).await;
+
+    for ip in [PROBE, "8.8.8.8"] {
+        let refused = answers[ip].as_ref().expect_err("a trial key's batch of two must fail");
+        assert_eq!(refused.kind(), ErrorKind::BadRequest);
+        assert_eq!(refused.status(), Some(402));
+        assert!(!refused.retryable());
+    }
+    let paths: Vec<String> = recorder.facts().iter().map(|fact| fact.path.clone()).collect();
+    assert_eq!(paths, ["/batch"], "one request, never retried");
+}
+
+#[tokio::test]
+async fn a_trial_keys_batch_of_one_is_answered() {
+    skip_unless!(RUNGS[1].skip_reason());
+    let (client, recorder) = client_for(&RUNGS[1]).await;
+
+    let answers = client.lookup_batch([PROBE], BatchOptions::new()).await;
+
+    assert!(
+        answers[PROBE].is_ok(),
+        "a trial key's batch of one failed: {:?}",
+        answers[PROBE].as_ref().err()
+    );
+    // Read off the wire, since the crate this suite resolves may predate the member.
+    let served = recorder.json_body("/batch").expect("the batch's answer was captured");
+    assert!(
+        served["results"][PROBE]["trial_expired"].is_boolean(),
+        "the answer carries trial_expired"
+    );
 }
 
 #[tokio::test]
@@ -93,7 +153,9 @@ async fn a_field_a_higher_tier_serves_is_absent_on_a_lower_one_never_false() {
     // is reported as such.
     for answer in &answers {
         let held = client_fields(&answer.result);
-        for field in answer.wire.keys() {
+        // trial_expired has its own test, read off the wire, since the crate this
+        // suite resolves may predate the member.
+        for field in answer.wire.keys().filter(|field| *field != "trial_expired") {
             assert!(
                 held.contains(field),
                 "{}: the wire served {field} and the client dropped it (or the pinned spec does \
@@ -160,9 +222,9 @@ async fn a_batch_without_a_key_is_refused_once_and_its_bogon_still_answered() {
 
 #[tokio::test]
 async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
-    // A batch needs a key, and the free one is the cheapest that has it.
-    skip_unless!(RUNGS[1].skip_reason());
-    let (client, recorder) = client_for(&RUNGS[1]).await;
+    // A batch needs a paid plan, and starter is the cheapest.
+    skip_unless!(RUNGS[2].skip_reason());
+    let (client, recorder) = client_for(&RUNGS[2]).await;
 
     let answers = client
         .lookup_batch([PROBE, "8.8.8.8", PROBE, "10.0.0.1", "8.8.8.8"], BatchOptions::new())
@@ -185,7 +247,7 @@ async fn a_batch_collapses_duplicates_and_keeps_bogons_off_the_wire() {
         "a batch is sent to POST /batch alone"
     );
     for fact in &facts {
-        assert!(fact.carried_key, "the free key never reached the wire");
+        assert!(fact.carried_key, "the paid key never reached the wire");
         let distinct: BTreeSet<&String> = fact.ips.iter().collect();
         assert_eq!(distinct.len(), fact.ips.len(), "a chunk repeated an address: {:?}", fact.ips);
     }

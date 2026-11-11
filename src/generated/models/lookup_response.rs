@@ -1,7 +1,7 @@
 /*
  * VPNDetection API
  *
- * The VPNDetection API: classify any IP address, and download the databases behind the answers.  Lookups need no API key: the Unlimited tier answers any address with no daily or monthly cap, for non-commercial use, and a service built on it must credit VPNDetection (https://vpndetection.io/terms#no-key). Commercial use needs a key, a free one included, which also adds every remaining flag.  See https://docs.vpndetection.io for guides and https://github.com/vpndetection-io for the official client libraries.
+ * The VPNDetection API: classify any IP address, and download the databases behind the answers.  Lookups need no API key: the Unlimited tier answers any address with no daily or monthly cap, with a key or without one. Every paid plan answers every field, and an organization on no paid plan can try them, 100 lookups a day. Unlimited's answers may be used commercially, but not redistributed or used in a competing service (https://vpndetection.io/terms#no-key).  See https://docs.vpndetection.io for guides and https://github.com/vpndetection-io for the official client libraries.
  *
  * The version of the OpenAPI document: 2026.11.11
  * Contact: support@vpndetection.io
@@ -11,7 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// LookupResponse : The union of every plan's answer. Every answer carries `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`, with or without a key; each remaining field is present when your key includes it, and absent otherwise. A client that must work across plans should treat an absent flag as unknown rather than as `false`.
+/// LookupResponse : The union of every tier's answer. Every answer carries `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`, with or without a key; each remaining field is present when your tier includes it, and absent otherwise. A client that must work across plans should treat an absent flag as unknown rather than as `false`.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LookupResponse {
     /// The address that was looked up, normalized.
@@ -20,7 +20,7 @@ pub struct LookupResponse {
     /// Whether the address is VPN infrastructure. Keys off presence in the VPN dataset, so an unattributed range with no provider is still `true`.
     #[serde(rename = "is_vpn")]
     pub is_vpn: bool,
-    /// Whether the address belongs to a hosting or cloud provider. Free and paid plans.
+    /// Whether the address belongs to a hosting or cloud provider. Paid plans.
     #[serde(rename = "is_hosting", skip_serializing_if = "Option::is_none")]
     pub is_hosting: Option<bool>,
     /// Whether the address is privacy relay or enterprise web gateway egress, such as iCloud Private Relay or Zscaler. Every answer, with or without a key.
@@ -29,19 +29,19 @@ pub struct LookupResponse {
     /// Whether the address is a Tor node. Every answer, with or without a key.
     #[serde(rename = "is_tor", skip_serializing_if = "Option::is_none")]
     pub is_tor: Option<bool>,
-    /// Whether the address belongs to a CDN. Free and paid plans.
+    /// Whether the address belongs to a CDN. Paid plans.
     #[serde(rename = "is_cdn", skip_serializing_if = "Option::is_none")]
     pub is_cdn: Option<bool>,
-    /// Whether the address was seen in a residential proxy pool. Free and paid plans.
+    /// Whether the address was seen in a residential proxy pool. Paid plans.
     #[serde(rename = "is_resproxy", skip_serializing_if = "Option::is_none")]
     pub is_resproxy: Option<bool>,
-    /// Whether the address is one a datacenter proxy service sells or runs on, a proxy company's own ranges included. Free and paid plans.
+    /// Whether the address is one a datacenter proxy service sells or runs on, a proxy company's own ranges included. Paid plans.
     #[serde(rename = "is_dcproxy", skip_serializing_if = "Option::is_none")]
     pub is_dcproxy: Option<bool>,
-    /// Whether the address was seen in a mobile proxy pool. Free and paid plans.
+    /// Whether the address was seen in a mobile proxy pool. Paid plans.
     #[serde(rename = "is_mobproxy", skip_serializing_if = "Option::is_none")]
     pub is_mobproxy: Option<bool>,
-    /// Whether a public proxy, one anyone can connect through, listens on the address or sends its traffic out from it. Free and paid plans.
+    /// Whether a public proxy, one anyone can connect through, listens on the address or sends its traffic out from it. Paid plans.
     #[serde(rename = "is_pubproxy", skip_serializing_if = "Option::is_none")]
     pub is_pubproxy: Option<bool>,
     /// Detail for `is_vpn`. Empty when `is_vpn` is false. Paid plans.
@@ -75,10 +75,13 @@ pub struct LookupResponse {
     pub location: Option<Box<models::Location>>,
     #[serde(rename = "asn", skip_serializing_if = "Option::is_none")]
     pub asn: Option<Box<models::Asn>>,
+    /// On every answer to a trial key, an organization on no paid plan, and on no other: `false` while the organization's 100 full answers for the UTC day last, `true` once the answer is Unlimited's.
+    #[serde(rename = "trial_expired", skip_serializing_if = "Option::is_none")]
+    pub trial_expired: Option<bool>,
 }
 
 impl LookupResponse {
-    /// The union of every plan's answer. Every answer carries `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`, with or without a key; each remaining field is present when your key includes it, and absent otherwise. A client that must work across plans should treat an absent flag as unknown rather than as `false`.
+    /// The union of every tier's answer. Every answer carries `ip`, `is_vpn`, the Tor and relay members, `location` and `asn`, with or without a key; each remaining field is present when your tier includes it, and absent otherwise. A client that must work across plans should treat an absent flag as unknown rather than as `false`.
     pub fn new(ip: String, is_vpn: bool) -> LookupResponse {
         LookupResponse {
             ip,
@@ -102,6 +105,7 @@ impl LookupResponse {
             pubproxy: None,
             location: None,
             asn: None,
+            trial_expired: None,
         }
     }
 }

@@ -18,7 +18,7 @@ Requires Rust 1.85 or newer. Everything is `async` and runs on tokio.
 
 ## Usage
 
-**No API key needed to start.** The Unlimited tier answers `ip`, `is_vpn`, Tor and relay detection, `location` and `asn`, with no daily or monthly cap, for [non-commercial use](https://vpndetection.io/terms#no-key). Commercial use, or a batch lookup, needs a key, a free one included.
+**No API key needed to start.** The Unlimited tier answers `ip`, `is_vpn`, Tor and relay detection, `location` and `asn`, with no daily or monthly cap, with a key or without one.
 
 ```rust
 use vpndetection::Client;
@@ -37,7 +37,7 @@ if let Some(asn) = result.asn.as_deref() {
 
 ### With an API key
 
-A free key adds every other flag, `is_hosting`, `is_cdn` and the four proxy flags, at 50,000 lookups a month, and every paid plan answers every field, the provider, confidence and last-seen detail behind each flag included. The paid plans differ only in how many lookups they include. Create a key in the [console](https://app.vpndetection.io), then pass it in:
+Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, and the provider, confidence and last-seen detail behind each flag. The plans differ only in how many lookups they include, and a new account can try every field, 100 lookups a day. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -46,7 +46,7 @@ let client = Client::builder()
 
 let result = client.lookup("45.83.91.1").await?;
 println!("{}", result.is_vpn);                  // true
-println!("{:?}", result.is_hosting);            // Some(true), with any key, a free one included
+println!("{:?}", result.is_hosting);            // Some(true), on a paid plan
 
 if let Some(vpn) = result.vpn.as_deref() {
     println!("{:?}", vpn.provider);             // Some("nordvpn"), on a paid plan
@@ -85,13 +85,13 @@ println!("{}", acct.usage.requests);      // 580
 println!("{}", acct.usage.window_end);    // when the allowance resets
 ```
 
-Usage counts against the anniversary of your subscription, not the calendar month and not the billing period, and it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
+Usage counts against the anniversary of your subscription on a paid plan, not the calendar month and not the billing period, and against the UTC day on a trial key; it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
 
 `my_ip_with` and `my_entitlement_with` take this call's own retry budget and timeout, the same as `lookup_with`.
 
 ### Batch lookup
 
-Look up many addresses at once. Bogons and cached answers are handled locally, and everything else goes to the batch endpoint in chunks of up to 1000 addresses, in parallel. The batch endpoint needs an API key, a free one included:
+Look up many addresses at once. Bogons and cached answers are handled locally, and everything else goes to the batch endpoint in chunks of up to 1000 addresses, in parallel. The batch endpoint needs a paid plan:
 
 ```rust
 use vpndetection::BatchOptions;
@@ -290,12 +290,12 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-Without a key a lookup leaves out `is_hosting`, `is_cdn` and the four proxy flags, and a free key leaves out `vpn` and the detail behind each flag. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+The Unlimited tier leaves out `is_hosting`, `is_cdn` and the four proxy flags, and of the detail behind each flag it answers only Tor's and relay's; a trial key's answer carries `trial_expired`, true once its day of full answers is spent. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag
-result.is_hosting.is_none();          // without a key: not in your plan
-result.vpn.is_none();                 // on a free key: not in your plan
+result.is_hosting.is_none();          // on the Unlimited tier: not in your plan
+result.trial_expired == Some(true); // a trial key's day of full answers is spent
 ```
 
 ## Other Libraries

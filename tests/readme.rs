@@ -98,7 +98,7 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
 
     result.is_hosting.unwrap_or(false);
     result.is_hosting.is_none();
-    result.vpn.is_none();
+    result.trial_expired == Some(true);
     Ok(())
 }
 
