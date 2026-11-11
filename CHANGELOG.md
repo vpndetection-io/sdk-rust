@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.11.2 - 2026-11-11
+
+### Fixes
+
+- Name the Unlimited tier and its terms, and re-pin the spec ([`fb2b3a0`](https://github.com/vpndetection-io/sdk-rust/commit/fb2b3a07a1913afaa9891ba58883a476b455ec9e))
+
 ## 5.11.1 - 2026-11-11
 
 ### Fixes
