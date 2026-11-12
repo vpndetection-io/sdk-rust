@@ -208,7 +208,8 @@ async fn a_bogon_is_answered_without_touching_the_network() {
 async fn a_batch_without_a_key_is_refused_once_and_its_bogon_still_answered() {
     let (client, recorder) = client_for(&RUNGS[0]).await;
 
-    let answers = client.lookup_batch([PROBE, "10.0.0.1"], BatchOptions::new()).await;
+    // Two addresses on the wire: a keyless batch of one is answered as its lookup.
+    let answers = client.lookup_batch([PROBE, "8.8.8.8", "10.0.0.1"], BatchOptions::new()).await;
 
     let bogon = answers["10.0.0.1"].as_ref().expect("10.0.0.1 was not answered locally");
     assert!(bogon.is_bogon);
