@@ -8,6 +8,11 @@ What each release changed for you, newest first. Each line is a commit's summary
 
 - Re-pin the spec to 2026.11.14: is_bogon on every answer, and provider_name beside each provider ([`c82d663`](https://github.com/vpndetection-io/sdk-rust/commit/c82d6632e7d0fa4c5b46f5bbf5f350fc713bee23))
 
+### Fixes
+
+- Re-pin the spec to 2026.11.12: plainer words on the 401 and the batch rate limit ([`4134f37`](https://github.com/vpndetection-io/sdk-rust/commit/4134f37be74d46a216a168e83f88f4f6f9ad6e6b))
+- Say that a batch request of one address is answered as its lookup ([`686dd4e`](https://github.com/vpndetection-io/sdk-rust/commit/686dd4e35721d1367024c6ab0a03bb113c3dc5b6))
+
 ## 5.12.1 - 2026-11-11
 
 ### Fixes
