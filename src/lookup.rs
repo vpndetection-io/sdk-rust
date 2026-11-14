@@ -18,8 +18,9 @@ use crate::models::LookupResponse;
 /// and [`Lookup::answer`] is the untouched wire object.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lookup {
-    /// True when this answer was computed locally rather than served, which
-    /// happens for a bogon and only for a bogon.
+    /// True for reserved space (private, loopback, documentation and the like),
+    /// which this crate answers locally without a request. A served answer
+    /// carries the API's own `is_bogon`, and this reads it.
     pub is_bogon: bool,
 
     /// The answer as it was served, with the wire's own optionality intact.
@@ -28,7 +29,7 @@ pub struct Lookup {
 
 impl Lookup {
     pub(crate) fn served(answer: LookupResponse) -> Self {
-        Self { is_bogon: false, answer }
+        Self { is_bogon: answer.is_bogon.unwrap_or(false), answer }
     }
 }
 

@@ -43,9 +43,9 @@ pub(crate) fn unmapped(ip: &str) -> Cow<'_, str> {
 }
 
 /// The answer a bogon gets: the full shape the API serves on its widest plan,
-/// every flag present and false, every detail object present and empty, and a
-/// location and AS of empty strings and AS 0, plus the `is_bogon` marker that
-/// tells a computed answer from a served one.
+/// every flag present and false, every detail object present and empty, a
+/// location and AS of empty strings and AS 0, and `is_bogon` true, as the API
+/// answers a bogon.
 ///
 /// Deliberately the WIDEST shape whatever plan you are on, so a caller must not
 /// infer which fields their plan includes from a bogon answer.
@@ -54,6 +54,7 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
         is_bogon: true,
         answer: LookupResponse {
             ip: ip.to_owned(),
+            is_bogon: Some(true),
             is_vpn: false,
             is_hosting: Some(false),
             is_relay: Some(false),

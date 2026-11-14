@@ -1247,3 +1247,19 @@ async fn a_retry_after_past_its_bound_waits_the_backoff() {
     let held = tokio::time::timeout(Duration::from_secs(2), client.lookup("45.83.91.1")).await;
     assert!(held.is_err(), "Retry-After 2147483 was not waited out");
 }
+
+#[tokio::test]
+async fn a_served_is_bogon_reaches_the_result() {
+    let routes = vec![
+        ("/8.8.8.8".to_owned(), Route::ok(r#"{"ip":"8.8.8.8","is_bogon":true,"is_vpn":false}"#)),
+        ("/8.8.4.4".to_owned(), Route::ok(r#"{"ip":"8.8.4.4","is_bogon":false,"is_vpn":false}"#)),
+    ];
+    let stub = Stub::start(routes).await;
+    let client = stub.client().no_cache().build().expect("build");
+
+    let single = client.lookup("8.8.8.8").await.expect("lookup");
+    assert!(single.is_bogon, "lookup: is_bogon is false, want the served true");
+    let batch = client.lookup_batch(["8.8.8.8", "8.8.4.4"], BatchOptions::new()).await;
+    assert!(batch["8.8.8.8"].as_ref().expect("8.8.8.8").is_bogon, "batch: want the served true");
+    assert!(!batch["8.8.4.4"].as_ref().expect("8.8.4.4").is_bogon, "batch: want the served false");
+}
