@@ -166,7 +166,13 @@ pub async fn client_for(rung: &Rung) -> (Client, Arc<Recorder>) {
 /// detail object carries on every tier; `optional` is the max-only remainder,
 /// which is absent rather than empty on a lower plan.
 pub const MEMBERS: [(&str, Detail); 8] = [
-    ("vpn", Detail { required: &["provider", "last_seen"], optional: &["confidence", "method"] }),
+    (
+        "vpn",
+        Detail {
+            required: &["provider", "provider_name", "last_seen"],
+            optional: &["confidence", "method"],
+        },
+    ),
     ("hosting", Detail { required: CLASS_KEYS, optional: &[] }),
     ("relay", Detail { required: CLASS_KEYS, optional: &[] }),
     ("tor", Detail { required: CLASS_KEYS, optional: &[] }),
@@ -176,9 +182,16 @@ pub const MEMBERS: [(&str, Detail); 8] = [
     ("mobproxy", Detail { required: PROXY_KEYS, optional: &[] }),
 ];
 
-const CLASS_KEYS: &[&str] = &["provider", "confidence", "last_seen"];
-const PROXY_KEYS: &[&str] =
-    &["provider", "first_seen", "last_seen", "hits", "hits_days_pct", "providers_num"];
+const CLASS_KEYS: &[&str] = &["provider", "provider_name", "confidence", "last_seen"];
+const PROXY_KEYS: &[&str] = &[
+    "provider",
+    "provider_name",
+    "first_seen",
+    "last_seen",
+    "hits",
+    "hits_days_pct",
+    "providers_num",
+];
 
 pub struct Detail {
     pub required: &'static [&'static str],
