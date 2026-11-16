@@ -2,6 +2,16 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 5.14.0 - 2026-11-16
+
+### Features
+
+- Read the plan's name, what to show beside the key you compare ([`4166cf0`](https://github.com/vpndetection-io/sdk-rust/commit/4166cf0c7e3f0a9c3020779d7b9717bf62e0b655))
+
+### Fixes
+
+- Re-pin the spec to 2026.11.15: Asn.asn is an i64, so any AS number reads ([`511d9eb`](https://github.com/vpndetection-io/sdk-rust/commit/511d9eb5e2e4173f8bcaeac1d82232d7ddc0751e))
+
 ## 5.13.0 - 2026-11-14
 
 ### Features
