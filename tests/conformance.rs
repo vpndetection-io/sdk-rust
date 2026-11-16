@@ -303,6 +303,19 @@ async fn an_entitlement_reads_the_plan_name_and_any_tier_as_served() {
     }
 }
 
+/// An AS number is 32 bits unsigned, so the private-use range from 4200000000 is
+/// past an `i32`.
+#[tokio::test]
+async fn an_as_number_past_an_i32_reads() {
+    let body = r#"{"ip":"45.83.91.1","is_vpn":false,"asn":{"asn":4200000001,"name":"n","domain":"d","type":"isp","prefix":"45.83.91.0/24"}}"#;
+    let stub = Stub::start([("/45.83.91.1".to_string(), Route::ok(body))]).await;
+    let client = stub.client().build().expect("build");
+
+    let answer = client.lookup("45.83.91.1").await.expect("lookup");
+
+    assert_eq!(answer.asn.as_deref().expect("the answer has an asn").asn, 4_200_000_001);
+}
+
 /// Every generated range has to be reachable through the predicate, which is the
 /// only public surface the table has. The exact table-versus-corpus comparison
 /// is a unit test in src/bogon.rs, where the `pub(crate)` table is visible.
