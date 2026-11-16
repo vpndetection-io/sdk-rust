@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.0.0 - 2026-11-16
+
+### Breaking changes
+
+- Hand back a vocabulary value this release was not built with ([`8aa241e`](https://github.com/vpndetection-io/sdk-rust/commit/8aa241e9ff6311d7e2311625f46b712dcd04d6fa))
+
 ## 5.14.0 - 2026-11-16
 
 ### Features
