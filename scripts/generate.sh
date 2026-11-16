@@ -107,6 +107,23 @@ if perl -0777 -ne 'while (/(#\[serde\((?:[^\]]|\n)*?\)\])\s+pub \w+: [^\n]*serde
     exit 1
 fi
 
+# A closed vocabulary in an ANSWER is the API's to extend, and an exhaustive
+# enum failed the whole call on a value it was not built with (5.14.0). Each
+# generated enum is opened: `#[non_exhaustive]`, no `Copy`, and a last variant,
+# `Other`, carrying the value as served, while a number or a null still fails.
+# `Other` rather than `Unknown`, which `Outcome` already has for the API's
+# `unknown`. The generated `Display` goes too, since its match has no arm for
+# `Other`; src/enums.rs writes one for every enum. An enum in another shape
+# stops the script.
+perl -0777 -pi -e '
+    s/#\[derive\(Clone, Copy, (Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)\)\]\npub enum (\w+) \{\n((?:    #\[serde\(rename = "[^"]+"\)\]\n    \w+,\n)+)\n?\}/#[derive(Clone, $1)]\n#[non_exhaustive]\npub enum $2 {\n$3    \/\/\/ A value this release was not built with, as the API served it.\n    #[serde(untagged)]\n    Other(String),\n}/g;
+    s/\nimpl std::fmt::Display for \w+ \{\n.*?\n\}\n//gs;
+' src/generated/models/*.rs
+if grep -h -B1 '^pub enum' src/generated/models/*.rs | grep -v -e '^pub enum' -e '^#\[non_exhaustive\]$' -e '^--$' ; then
+    echo "an enum above refuses a value it was not built with: teach this script its shape" >&2
+    exit 1
+fi
+
 # The repo is rustfmt-clean and CI gates on it, so the generator's output is
 # normalized here rather than left as a diff for the next `cargo fmt` to find.
 ./scripts/cargo.sh fmt

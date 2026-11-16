@@ -203,6 +203,8 @@ let raw = client.database().download_bytes("cdn_ip_v1", DatabaseFormat::Csvgz).a
 let written = client.database().download("vpn_ip_extended_v1", DatabaseFormat::Mmdb, "./vpn_ip.mmdb").await?;
 ```
 
+`Standing`, `LicenseType`, `DatabaseFormat` and a download's `DownloadOutcome` are `#[non_exhaustive]`: a value we add after your release comes back as `Other`, carrying it as we sent it, rather than failing the call, so give a `match` on one a `_` arm. `as_str()` and `{}` print the value as the API spells it. A format read off an answer goes to a download by reference (`&version.formats[0].format`), and one your release was not built with is refused before the request is sent.
+
 `download_url` hands back a time-limited link so you can run the transfer yourself. `download` streams to disk through a neighboring `.part` file, so nothing bigger than a chunk is ever held in memory and a transfer that dies half way leaves no truncated file. `download_bytes` holds the whole file in memory, and the catalog runs from `cdn_ip_v1` at 10 KB to `resproxy_ip_90d_v1` at 1.79 GB, so use `download` for anything you have not measured.
 
 From 5.10.0, `download_url_with`, `download_with` and `download_bytes_with` take a `DownloadOptions` naming the build a `database.updated` webhook names, so the file is the one whose `sha256` the webhook carries rather than whatever is live by the time you ask. The three without it fetch the live build. A build is kept 7 days, and one pruned since is a `BadRequest` with status 410:
@@ -278,7 +280,7 @@ Each redirect URI must be https on a public host name, or http on a loopback add
 `rustls` is the default, so the crate builds with no system libraries at all. If you would rather link the platform's TLS, or you already depend on `reqwest` with its own defaults and want one backend rather than two:
 
 ```toml
-vpndetection = { version = "5", default-features = false, features = ["native-tls"] }
+vpndetection = { version = "6", default-features = false, features = ["native-tls"] }
 ```
 
 ### Calling from synchronous code

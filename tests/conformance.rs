@@ -275,32 +275,47 @@ async fn caching_can_be_turned_off() {
     assert_eq!(stub.count(), 2);
 }
 
-/// The plan reads its name, the thing a client shows, beside the key it
-/// compares, and a tier no published list holds comes back as served. Only the
-/// entitlement's cases are read here: a database's standing, license type and
-/// format and a download's outcome are typed enums, which refuse a value they
-/// were not built with.
+/// A closed vocabulary in an ANSWER is the API's to extend, so every case's
+/// value comes back as served: the plan's name and a tier no published list
+/// holds, a database's standing, license type and format, and a download's
+/// outcome. Each answer is read through its typed result, rendered back to its
+/// wire names, and walked along the case's path.
 #[tokio::test]
-async fn an_entitlement_reads_the_plan_name_and_any_tier_as_served() {
+async fn every_vocabulary_value_comes_back_as_served() {
     let data: Corpus = corpus::load();
-    let cases: Vec<_> =
-        data.vocabulary.cases.iter().filter(|case| case.call == "myEntitlement").collect();
-    assert!(cases.len() >= 2, "the corpus has no entitlement vocabulary cases");
-    for case in cases {
+    let mut calls = std::collections::BTreeSet::new();
+    for case in &data.vocabulary.cases {
+        calls.insert(case.call.as_str());
+        let path = match case.call.as_str() {
+            "myEntitlement" => "/api/v1/entitlement",
+            "listDatabases" => "/api/v1/database/list",
+            "listDownloads" => "/api/v1/database/downloads",
+            other => panic!("{}: no call for {other}", case.name),
+        };
         let route = Route::ok(case.answer.to_string());
-        let stub = Stub::start([("/api/v1/entitlement".to_string(), route)]).await;
-        let client = stub.client().build().expect("build");
-        let ent = client.my_entitlement().await.unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let stub = Stub::start([(path.to_string(), route)]).await;
+        let client = stub.client().retries(0).build().expect("build");
+        let read = match case.call.as_str() {
+            "myEntitlement" => client.my_entitlement().await.map(|ent| json!(ent)),
+            "listDatabases" => {
+                client.database().list().await.map(|list| json!({"databases": list}))
+            }
+            _ => client.database().downloads(None).await.map(|list| json!({"downloads": list})),
+        }
+        .unwrap_or_else(|e| panic!("{}: {e}", case.name));
         for (path, want) in &case.expect {
-            let got = match path.as_str() {
-                "plan.key" => &ent.plan.key,
-                "plan.name" => &ent.plan.name,
-                "plan.tier" => &ent.plan.tier,
-                other => panic!("{}: no reader for {other}", case.name),
-            };
-            assert_eq!(Some(got.as_str()), want.as_str(), "{}: {path}", case.name);
+            let got = path.split('.').fold(&read, |value, step| match step.parse::<usize>() {
+                Ok(index) => &value[index],
+                Err(_) => &value[step],
+            });
+            assert_eq!(got, want, "{}: {path}", case.name);
         }
     }
+    assert_eq!(
+        calls.into_iter().collect::<Vec<_>>(),
+        ["listDatabases", "listDownloads", "myEntitlement"],
+        "the corpus's vocabulary cases moved to a call this suite does not make"
+    );
 }
 
 /// An AS number is 32 bits unsigned, so the private-use range from 4200000000 is

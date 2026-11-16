@@ -49,6 +49,7 @@ mod client;
 mod database;
 mod dates;
 mod entitlement;
+mod enums;
 mod error;
 mod flight;
 mod generated;

@@ -73,7 +73,8 @@ impl Download {
     }
 }
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Outcome {
     #[serde(rename = "ok")]
     Ok,
@@ -87,6 +88,9 @@ pub enum Outcome {
     Unknown,
     #[serde(rename = "unavailable")]
     Unavailable,
+    /// A value this release was not built with, as the API served it.
+    #[serde(untagged)]
+    Other(String),
 }
 
 impl Default for Outcome {

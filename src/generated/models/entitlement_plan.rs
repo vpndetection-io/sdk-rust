@@ -30,7 +30,8 @@ impl EntitlementPlan {
     }
 }
 /// The field tier, which decides how much of a lookup answer comes back; `free` is the free plan's. This list never gains a value: a new plan reports one of these. What each tier includes is documented on the lookup endpoint rather than repeated here, so there is one place it can be wrong.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Tier {
     #[serde(rename = "free")]
     Free,
@@ -40,6 +41,9 @@ pub enum Tier {
     Scale,
     #[serde(rename = "max")]
     Max,
+    /// A value this release was not built with, as the API served it.
+    #[serde(untagged)]
+    Other(String),
 }
 
 impl Default for Tier {

@@ -48,9 +48,14 @@ impl<'a> DatabaseApi<'a> {
     /// digests a dataset publishes is the API's choice. They nest under
     /// `checksums` in the response, and reading a top-level `sha256` is how the
     /// Node SDK shipped this broken in 1.0.x.
-    pub async fn checksums(&self, id: &str, format: Format) -> Result<DbChecksums, Error> {
+    pub async fn checksums(
+        &self,
+        id: &str,
+        format: impl Into<Format>,
+    ) -> Result<DbChecksums, Error> {
+        let format = format.into();
         let response: DatabaseChecksumsResponse = self
-            .get("/api/v1/database/checksum", &[("id", id), ("format", format.as_str())])
+            .get("/api/v1/database/checksum", &[("id", id), ("format", requested(&format)?)])
             .await?;
         Ok(*response.checksums)
     }
@@ -73,7 +78,7 @@ impl<'a> DatabaseApi<'a> {
     /// the bytes so the caller decides how to transfer a file that routinely
     /// runs to gigabytes; the link authorizes the START of a transfer, so one
     /// already running is not interrupted when it lapses.
-    pub async fn download_url(&self, id: &str, format: Format) -> Result<String, Error> {
+    pub async fn download_url(&self, id: &str, format: impl Into<Format>) -> Result<String, Error> {
         self.download_url_with(id, format, DownloadOptions::default()).await
     }
 
@@ -81,10 +86,11 @@ impl<'a> DatabaseApi<'a> {
     pub async fn download_url_with(
         &self,
         id: &str,
-        format: Format,
+        format: impl Into<Format>,
         opts: DownloadOptions,
     ) -> Result<String, Error> {
-        let mut query = vec![("id", id), ("format", format.as_str())];
+        let format = format.into();
+        let mut query = vec![("id", id), ("format", requested(&format)?)];
         if let Some(build) = &opts.build {
             query.push(("build", build));
         }
@@ -108,7 +114,7 @@ impl<'a> DatabaseApi<'a> {
     pub async fn download(
         &self,
         id: &str,
-        format: Format,
+        format: impl Into<Format>,
         path: impl AsRef<Path>,
     ) -> Result<u64, Error> {
         self.download_with(id, format, path, DownloadOptions::default()).await
@@ -118,13 +124,13 @@ impl<'a> DatabaseApi<'a> {
     pub async fn download_with(
         &self,
         id: &str,
-        format: Format,
+        format: impl Into<Format>,
         path: impl AsRef<Path>,
         opts: DownloadOptions,
     ) -> Result<u64, Error> {
         let path = path.as_ref();
         let partial = partial_path(path);
-        let response = self.fetch_file(id, format, opts).await?;
+        let response = self.fetch_file(id, format.into(), opts).await?;
 
         let outcome = match stream_to_file(response, &partial).await {
             Ok(written) => {
@@ -148,7 +154,11 @@ impl<'a> DatabaseApi<'a> {
     /// 1.79 GB. Reach for it at the small end, where the bytes go straight into
     /// a parser, and use [`DatabaseApi::download`] for anything you have not
     /// measured.
-    pub async fn download_bytes(&self, id: &str, format: Format) -> Result<Vec<u8>, Error> {
+    pub async fn download_bytes(
+        &self,
+        id: &str,
+        format: impl Into<Format>,
+    ) -> Result<Vec<u8>, Error> {
         self.download_bytes_with(id, format, DownloadOptions::default()).await
     }
 
@@ -156,10 +166,10 @@ impl<'a> DatabaseApi<'a> {
     pub async fn download_bytes_with(
         &self,
         id: &str,
-        format: Format,
+        format: impl Into<Format>,
         opts: DownloadOptions,
     ) -> Result<Vec<u8>, Error> {
-        let mut response = self.fetch_file(id, format, opts).await?;
+        let mut response = self.fetch_file(id, format.into(), opts).await?;
         let declared = response.content_length();
         // Allocated once from the declared length. A Vec grows by doubling, so
         // the last grow of a large dataset alone costs twice the file. Reserved
@@ -282,16 +292,14 @@ fn assert_whole_transfer(declared: Option<u64>, written: u64) -> Result<(), Erro
     }
 }
 
-/// Not every database is built in every format: the `_provider` catalogs are keyed
-/// by provider ID rather than by IP range, so no MMDB exists for them.
-///
-/// `Display` comes from the generated enum now that the spec names it, so only
-/// the borrowed `&'static str` a query string wants is hand-written here.
-impl Format {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Csvgz => "csvgz",
-            Self::Mmdb => "mmdb",
-        }
+/// The wire spelling of a format a request names. `Other` is a format this
+/// release was not built with, which an answer may carry but a request may not
+/// name: it is refused before the network, where the API would answer a 400.
+fn requested(format: &Format) -> Result<&str, Error> {
+    match format {
+        Format::Other(value) => Err(Error::Config(format!(
+            "{value:?} is not a database format this release can request"
+        ))),
+        known => Ok(known.as_str()),
     }
 }

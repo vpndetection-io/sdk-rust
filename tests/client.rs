@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use support::{Route, Stub};
 use vpndetection::{
-    BatchOptions, Client, DatabaseFormat, Error, ErrorKind, LookupOptions, Standing,
+    BatchOptions, Client, DatabaseFormat, DownloadOutcome, Error, ErrorKind, LicenseType,
+    LookupOptions, Standing,
 };
 
 /// An origin that holds every request this long before answering, so only a
@@ -833,6 +834,173 @@ async fn the_database_list_unwraps_a_family_and_its_versions() {
     assert_eq!(version.version, 1);
     assert_eq!(version.formats[0].format, DatabaseFormat::Mmdb);
     assert_eq!(version.sample_formats.as_deref(), Some([DatabaseFormat::Csvgz].as_slice()));
+}
+
+/// A closed vocabulary in an ANSWER is the API's to extend, so a value this
+/// release was not built with comes back as served, in `Other`, and the call
+/// answers. Refusing it failed every installed copy the day the API added one
+/// (5.14.0). A name spelled like a variant's or in another case is a value no
+/// list holds, so it comes back as served too.
+#[tokio::test]
+async fn a_value_this_release_was_not_built_with_comes_back_as_served() {
+    let stub = Stub::start([
+        (
+            "/api/v1/database/list".to_owned(),
+            Route::ok(
+                r#"{"databases":[{"base":"vpn_ip","name":"VPN IP","summary":"s","starts":"2026-01-01T00:00:00Z","expires":null,"renews_at":null,"notice_due_at":null,"license_type":"oem","in_term":true,"standing":"suspended","open":false,"versions":[{"id":"vpn_ip_v1","version":1,"formats":[{"format":"csvgz","bytes":1},{"format":"parquet","bytes":2},{"format":"Mmdb","bytes":3},{"format":"MMDB","bytes":4}],"sample_formats":["parquet"]}]}]}"#,
+            ),
+        ),
+        (
+            "/api/v1/database/downloads".to_owned(),
+            Route::ok(
+                r#"{"downloads":[{"dataset_id":"vpn_ip_v1","format":"parquet","outcome":"throttled","sample":false,"open":false,"bytes":null,"http_status":429,"apikey_id":null,"client_ip":null,"user_agent":null,"created":"2026-09-04T10:00:00Z"}]}"#,
+            ),
+        ),
+    ])
+    .await;
+    let client = stub.client().retries(0).build().expect("build");
+    let database = client.database();
+
+    let family = database.list().await.expect("list").remove(0);
+    let attempt = database.downloads(None).await.expect("downloads").remove(0);
+
+    assert_eq!(family.standing, Standing::Other("suspended".to_owned()));
+    assert_eq!(family.license_type, Some(LicenseType::Other("oem".to_owned())));
+    let version = &family.versions[0];
+    assert_eq!(
+        version.formats.iter().map(|size| size.format.clone()).collect::<Vec<_>>(),
+        [
+            DatabaseFormat::Csvgz,
+            DatabaseFormat::Other("parquet".to_owned()),
+            DatabaseFormat::Other("Mmdb".to_owned()),
+            DatabaseFormat::Other("MMDB".to_owned()),
+        ]
+    );
+    assert_eq!(
+        version.sample_formats.as_deref(),
+        Some([DatabaseFormat::Other("parquet".to_owned())].as_slice())
+    );
+    assert_eq!(attempt.format, "parquet");
+    assert_eq!(attempt.outcome, DownloadOutcome::Other("throttled".to_owned()));
+
+    // Both readers print the value as served, and serde sends it back as one.
+    assert_eq!(
+        [family.standing.as_str(), family.license_type.as_ref().expect("oem").as_str()],
+        ["suspended", "oem"]
+    );
+    assert_eq!(
+        [version.formats[1].format.to_string(), attempt.outcome.to_string()],
+        ["parquet", "throttled"]
+    );
+    assert_eq!(serde_json::to_string(&family.standing).expect("serialize"), r#""suspended""#);
+}
+
+/// Every reader prints what serde puts on the wire, an `Other` included, so a
+/// listing or a log line reads in the API's own words, never `Csvgz`.
+#[test]
+fn the_vocabulary_readers_agree_with_the_wire() {
+    fn agree<T: serde::Serialize + std::fmt::Display>(variants: &[T]) {
+        for variant in variants {
+            let sent = serde_json::to_value(variant).expect("serialize");
+            assert_eq!(Some(variant.to_string().as_str()), sent.as_str());
+        }
+    }
+    agree(&[
+        Standing::Expired,
+        Standing::Licensed,
+        Standing::Unlicensed,
+        Standing::Other("suspended".to_owned()),
+    ]);
+    agree(&[
+        LicenseType::Evaluation,
+        LicenseType::Standard,
+        LicenseType::Redistribute,
+        LicenseType::Other("oem".to_owned()),
+    ]);
+    agree(&[DatabaseFormat::Csvgz, DatabaseFormat::Mmdb, DatabaseFormat::Other("parquet".into())]);
+    agree(&[
+        DownloadOutcome::Ok,
+        DownloadOutcome::Unauthorized,
+        DownloadOutcome::Denied,
+        DownloadOutcome::Expired,
+        DownloadOutcome::Unknown,
+        DownloadOutcome::Unavailable,
+        DownloadOutcome::Other("throttled".to_owned()),
+    ]);
+}
+
+/// A value of the wrong TYPE is no value at all, so it still fails the call,
+/// as the API's own fault: a retried `ServerError` carrying the 200.
+#[tokio::test]
+async fn a_vocabulary_member_of_the_wrong_type_still_fails_the_call() {
+    let family = |standing: &str, license_type: &str, format: &str| {
+        format!(
+            r#"{{"databases":[{{"base":"vpn_ip","name":"VPN IP","summary":"s","starts":null,"expires":null,"renews_at":null,"notice_due_at":null,"license_type":{license_type},"in_term":true,"standing":{standing},"open":false,"versions":[{{"id":"vpn_ip_v1","version":1,"formats":[{{"format":{format},"bytes":1}}]}}]}}]}}"#
+        )
+    };
+    for (shape, body) in [
+        ("a numeric standing", family("1", "null", r#""csvgz""#)),
+        ("a null standing", family("null", "null", r#""csvgz""#)),
+        ("an object standing", family(r#"{"x":1}"#, "null", r#""csvgz""#)),
+        ("a boolean license type", family(r#""licensed""#, "true", r#""csvgz""#)),
+        ("a null format", family(r#""licensed""#, "null", "null")),
+        ("a numeric format", family(r#""licensed""#, "null", "1")),
+    ] {
+        let stub = Stub::start([("/api/v1/database/list".to_owned(), Route::ok(body))]).await;
+        let client = stub.client().retries(1).build().expect("build");
+
+        let err = client.database().list().await.expect_err(shape);
+
+        assert_eq!(err.kind(), ErrorKind::ServerError, "{shape}: {err}");
+        assert_eq!(err.status(), Some(200), "{shape}: {err}");
+        assert_eq!(stub.count(), 2, "{shape}: an unreadable answer was not retried");
+    }
+}
+
+/// `Other` lets a caller NAME a format no release was built with, which the
+/// API answers with a 400. It is refused before the network instead, as every
+/// other SDK refuses an unpublished format.
+#[tokio::test]
+async fn a_format_this_release_cannot_request_is_refused_before_the_network() {
+    let stub = Stub::start([]).await;
+    let client = stub.client().api_key("key").build().expect("build");
+    let database = client.database();
+    let zip = || DatabaseFormat::Other("zip".to_owned());
+    let scratch = std::env::temp_dir().join("vpndetection-other-format.zip");
+
+    for (call, err) in [
+        ("checksums", database.checksums("vpn_ip_v1", zip()).await.map(drop)),
+        ("download_url", database.download_url("vpn_ip_v1", zip()).await.map(drop)),
+        ("download_bytes", database.download_bytes("vpn_ip_v1", zip()).await.map(drop)),
+        ("download", database.download("vpn_ip_v1", zip(), &scratch).await.map(drop)),
+    ]
+    .map(|(call, result)| (call, result.expect_err(call)))
+    {
+        assert!(matches!(err, Error::Config(_)), "{call}: {err}");
+        assert_eq!(err.kind(), ErrorKind::BadRequest, "{call}");
+        assert!(err.to_string().contains(r#""zip""#), "{call}: {err}");
+    }
+    assert_eq!(stub.count(), 0, "a format no release publishes reached the network");
+    assert!(!scratch.exists(), "a refused download left a file");
+}
+
+/// A format read off an answer is handed to a download by reference, now that
+/// the enum carries a value and is no longer `Copy`.
+#[tokio::test]
+async fn a_format_read_off_an_answer_is_taken_by_reference() {
+    let stub = Stub::start([(
+        "/api/v1/database/download".to_owned(),
+        Route::json(302, "").header("Location", "https://s3.example/vpn_ip_v1.mmdb"),
+    )])
+    .await;
+    let client = stub.client().api_key("key").build().expect("build");
+    let formats = [DatabaseFormat::Mmdb];
+
+    client.database().download_url("vpn_ip_v1", &formats[0]).await.expect("link");
+
+    let request = stub.requests().remove(0);
+    let target = request.header("x-stub-target").expect("the stub records every target");
+    assert!(target.contains("format=mmdb"), "{target}");
 }
 
 /// A 404 from a bad dataset ID is a CLIENT error. Letting it fall through to the

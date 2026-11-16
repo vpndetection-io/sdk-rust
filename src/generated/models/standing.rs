@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 /// Standing : Where your license for a database family stands today. `licensed` is a live grant, `expired` one whose term has ended, and `unlicensed` a database published but never bought.
 /// Where your license for a database family stands today. `licensed` is a live grant, `expired` one whose term has ended, and `unlicensed` a database published but never bought.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Standing {
     #[serde(rename = "expired")]
     Expired,
@@ -21,16 +22,9 @@ pub enum Standing {
     Licensed,
     #[serde(rename = "unlicensed")]
     Unlicensed,
-}
-
-impl std::fmt::Display for Standing {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Expired => write!(f, "expired"),
-            Self::Licensed => write!(f, "licensed"),
-            Self::Unlicensed => write!(f, "unlicensed"),
-        }
-    }
+    /// A value this release was not built with, as the API served it.
+    #[serde(untagged)]
+    Other(String),
 }
 
 impl Default for Standing {

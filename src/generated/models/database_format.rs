@@ -13,21 +13,16 @@ use serde::{Deserialize, Serialize};
 
 /// DatabaseFormat : A file format a database version is published in.
 /// A file format a database version is published in.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum DatabaseFormat {
     #[serde(rename = "csvgz")]
     Csvgz,
     #[serde(rename = "mmdb")]
     Mmdb,
-}
-
-impl std::fmt::Display for DatabaseFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Csvgz => write!(f, "csvgz"),
-            Self::Mmdb => write!(f, "mmdb"),
-        }
-    }
+    /// A value this release was not built with, as the API served it.
+    #[serde(untagged)]
+    Other(String),
 }
 
 impl Default for DatabaseFormat {
