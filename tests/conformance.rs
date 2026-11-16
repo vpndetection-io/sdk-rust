@@ -275,6 +275,34 @@ async fn caching_can_be_turned_off() {
     assert_eq!(stub.count(), 2);
 }
 
+/// The plan reads its name, the thing a client shows, beside the key it
+/// compares, and a tier no published list holds comes back as served. Only the
+/// entitlement's cases are read here: a database's standing, license type and
+/// format and a download's outcome are typed enums, which refuse a value they
+/// were not built with.
+#[tokio::test]
+async fn an_entitlement_reads_the_plan_name_and_any_tier_as_served() {
+    let data: Corpus = corpus::load();
+    let cases: Vec<_> =
+        data.vocabulary.cases.iter().filter(|case| case.call == "myEntitlement").collect();
+    assert!(cases.len() >= 2, "the corpus has no entitlement vocabulary cases");
+    for case in cases {
+        let route = Route::ok(case.answer.to_string());
+        let stub = Stub::start([("/api/v1/entitlement".to_string(), route)]).await;
+        let client = stub.client().build().expect("build");
+        let ent = client.my_entitlement().await.unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        for (path, want) in &case.expect {
+            let got = match path.as_str() {
+                "plan.key" => &ent.plan.key,
+                "plan.name" => &ent.plan.name,
+                "plan.tier" => &ent.plan.tier,
+                other => panic!("{}: no reader for {other}", case.name),
+            };
+            assert_eq!(Some(got.as_str()), want.as_str(), "{}: {path}", case.name);
+        }
+    }
+}
+
 /// Every generated range has to be reachable through the predicate, which is the
 /// only public surface the table has. The exact table-versus-corpus comparison
 /// is a unit test in src/bogon.rs, where the `pub(crate)` table is visible.

@@ -80,12 +80,15 @@ Same answer `lookup` would give for that address, and the same cost against your
 
 ```rust
 let acct = client.my_entitlement().await?;
-println!("{}", acct.plan.key);            // max
+println!("{}", acct.plan.name);           // Max, what to show
+println!("{}", acct.plan.key);            // max, what to compare against
 println!("{}", acct.usage.requests);      // 580
 println!("{}", acct.usage.window_end);    // when the allowance resets
 ```
 
 Usage counts against the anniversary of your subscription on a paid plan, not the calendar month and not the billing period, and against the UTC day on the free plan; it is the same number a lookup is gated on. `hard_limit` is `None` on an uncapped plan, which is not the same as zero.
+
+Show `plan.name` and compare against `plan.key`: a plan's name can change, and its key never does. A tier the API adds later comes back as the string it served, so check for the tiers you know rather than assuming the list is complete.
 
 `my_ip_with` and `my_entitlement_with` take this call's own retry budget and timeout, the same as `lookup_with`.
 

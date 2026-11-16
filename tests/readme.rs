@@ -34,6 +34,12 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder().api_key(key.clone()).concurrency(32).retries(4).build()?;
     let client = Client::builder().api_key(key).timeout(Duration::from_secs(5)).build()?;
 
+    let acct = client.my_entitlement().await?;
+    println!("{}", acct.plan.name);
+    println!("{}", acct.plan.key);
+    println!("{}", acct.usage.requests);
+    println!("{}", acct.usage.window_end);
+
     let results =
         client.lookup_batch(["45.83.91.1", "8.8.8.8", "1.1.1.1"], BatchOptions::new()).await;
     for (ip, result) in &results {

@@ -26,6 +26,7 @@ pub struct Corpus {
     pub bogons: Bogons,
     pub middleware: Middleware,
     pub oauth: Oauth,
+    pub vocabulary: Vocabulary,
 }
 
 impl Corpus {
@@ -449,4 +450,19 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// Answers carrying a vocabulary value no published list holds, each handed
+/// back as served. An `expect` key is a path of wire names through the answer.
+#[derive(Deserialize)]
+pub struct Vocabulary {
+    pub cases: Vec<VocabularyCase>,
+}
+
+#[derive(Deserialize)]
+pub struct VocabularyCase {
+    pub name: String,
+    pub call: String,
+    pub answer: Value,
+    pub expect: serde_json::Map<String, Value>,
 }
