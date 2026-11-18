@@ -77,6 +77,8 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             asn: Some(Box::default()),
             // Only a free-plan key's answers carry it, and a bogon is answered here.
             trial_expired: None,
+            // Only a paid key's answers carry it, and a bogon is answered here.
+            cap_reached: None,
         },
     }
 }
