@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.1.0 - 2026-11-18
+
+### Features
+
+- Read cap_reached past a paid plan's overage cap, and re-pin the spec ([`67490c9`](https://github.com/vpndetection-io/sdk-rust/commit/67490c9922196485bcdc1cf631bece7c2594c43a))
+
 ## 6.0.0 - 2026-11-16
 
 ### Breaking changes
