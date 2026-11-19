@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.1.1 - 2026-11-19
+
+### Fixes
+
+- Re-pin the spec to 2026.11.18: a key over plain HTTP is refused ([`0f6daa1`](https://github.com/vpndetection-io/sdk-rust/commit/0f6daa191f99cc57ba574bd28969277236a319c9))
+
 ## 6.1.0 - 2026-11-18
 
 ### Features
