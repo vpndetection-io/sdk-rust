@@ -237,7 +237,7 @@ let Some(apikey) = token.apikey else {
 let keyed = Client::builder().api_key(apikey).build()?;
 ```
 
-A denied sign-in fails with `OauthError::AccessDenied` and a code that ran out with `OauthError::ExpiredToken`. Client IDs are issued on request from support@vpndetection.io, and `client.oauth().revoke("your-client-id", &refresh_token)` signs the machine out again.
+A denied sign-in fails with `OauthError::AccessDenied` and a code that ran out with `OauthError::ExpiredToken`. `client.oauth().revoke("your-client-id", &refresh_token)` signs the machine out again. Only a client we registered, such as our CLI, can use the device flow: an app of your own signs people in with the authorization code flow below.
 
 ### Sign in with OAuth (authorization code)
 
