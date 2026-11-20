@@ -92,12 +92,12 @@ async fn a_free_plan_keys_answer_is_a_paid_one_or_unlimiteds_and_says_which() {
         .get("trial_expired")
         .and_then(|value| value.as_bool())
         .expect("a free-plan key answers trial_expired");
-    // The organization's first 100 lookups of the UTC day are answered in full,
-    // and the rest as Unlimited's: which half a run sees depends on the day.
+    // Answered in full while the organization's trial of every field lasts, and
+    // as Unlimited's after: which half a run sees depends on the trial.
     assert_eq!(
         wire.contains_key("is_hosting"),
         !expired,
-        "is_hosting is served exactly while the day lasts"
+        "is_hosting is served exactly while the trial lasts"
     );
 }
 
@@ -202,6 +202,8 @@ async fn a_bogon_is_answered_without_touching_the_network() {
         let fields = detail.as_object().expect("a detail object");
         assert!(fields.is_empty(), "{name} must be present and EMPTY on a bogon: {detail}");
     }
+    assert_eq!(wire.get("web"), Some(&serde_json::json!([])), "web on a bogon");
+    assert_eq!(wire.get("hostname"), Some(&serde_json::json!("")), "hostname on a bogon");
 }
 
 #[tokio::test]

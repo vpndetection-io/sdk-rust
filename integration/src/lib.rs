@@ -30,9 +30,9 @@ const RUNG_COUNT: usize = 5;
 /// whichever observable rung sits below it: the first paid tier serves strictly
 /// more than no key; every paid plan answers the same fields, so a higher paid
 /// tier only keeps what the one under it serves. The trial rung's key is on the
-/// free plan: its answer is a paid one for its organization's daily trial, the
-/// first 100 lookups of the UTC day, and Unlimited's after, so it promises
-/// nothing and is never the rung a later one is compared against.
+/// free plan: its answer is a paid one while its organization's trial of every
+/// field lasts, and Unlimited's after, so it promises nothing and is never the
+/// rung a later one is compared against.
 ///
 /// Field COUNTS are deliberately absent. Pinning "starter answers seven fields"
 /// turns a pricing change into a red SDK build; the relation between the tiers
@@ -165,7 +165,7 @@ pub async fn client_for(rung: &Rung) -> (Client, Arc<Recorder>) {
 /// One entry per dataset the API answers about. `required` is what a POPULATED
 /// detail object carries on every tier; `optional` is the max-only remainder,
 /// which is absent rather than empty on a lower plan.
-pub const MEMBERS: [(&str, Detail); 8] = [
+pub const MEMBERS: [(&str, Detail); 14] = [
     (
         "vpn",
         Detail {
@@ -180,6 +180,134 @@ pub const MEMBERS: [(&str, Detail); 8] = [
     ("resproxy", Detail { required: PROXY_KEYS, optional: &[] }),
     ("dcproxy", Detail { required: PROXY_KEYS, optional: &[] }),
     ("mobproxy", Detail { required: PROXY_KEYS, optional: &[] }),
+    (
+        "carrier",
+        Detail { required: &["name", "mcc", "mnc", "country", "confidence"], optional: &[] },
+    ),
+    (
+        "satellite",
+        Detail {
+            required: &[
+                "provider",
+                "provider_name",
+                "orbit",
+                "segment",
+                "country",
+                "asn",
+                "confidence",
+            ],
+            optional: &[],
+        },
+    ),
+    (
+        "ssh",
+        Detail {
+            required: &["port", "banner", "host_key_fp", "session_ok", "first_seen", "last_seen"],
+            optional: &[],
+        },
+    ),
+    (
+        "smtp",
+        Detail {
+            required: &["port", "banner", "session_ok", "first_seen", "last_seen"],
+            optional: &[],
+        },
+    ),
+    (
+        "dns_resolver",
+        Detail {
+            required: &[
+                "port",
+                "recursion_available",
+                "rcode",
+                "answer_correct",
+                "first_seen",
+                "last_seen",
+            ],
+            optional: &[],
+        },
+    ),
+    (
+        "bittorrent",
+        Detail {
+            required: &[
+                "verified",
+                "id_matches_ip",
+                "first_seen",
+                "last_seen",
+                "last_reachable",
+                "days_seen",
+                "num_ports",
+                "peak_num_ports",
+                "indexer",
+                "clients",
+            ],
+            optional: &[],
+        },
+    ),
+];
+
+/// What a row of `web`, a LIST with a row per port that answered, carries.
+pub const WEB_KEYS: &[&str] = &[
+    "port",
+    "tls_ok",
+    "session_ok",
+    "status_code",
+    "server",
+    "location",
+    "title",
+    "cert_subject_cn",
+    "cert_subject_o",
+    "cert_issuer_dn",
+    "cert_browser_trusted",
+    "tls_version",
+    "first_seen",
+    "last_seen",
+];
+
+/// The keys of the objects every answer or a paid one carries beside the
+/// details: each key a populated one serves must be one of these.
+pub const OBJECTS: [(&str, &[&str]); 4] = [
+    (
+        "location",
+        &[
+            "continent",
+            "continent_name",
+            "country",
+            "country_name",
+            "timezone",
+            "currency_code",
+            "currency_name",
+            "currency_symbol",
+            "flag_emoji",
+            "flag_unicode",
+            "region",
+            "region_code",
+            "city",
+            "postal_code",
+            "latitude",
+            "longitude",
+            "accuracy_radius",
+            "geoname_id",
+            "dma_code",
+            "last_changed",
+        ],
+    ),
+    ("asn", &["asn", "name", "domain", "type", "prefix", "country", "rpki_status"]),
+    ("company", &["name", "domain", "type", "country"]),
+    (
+        "abuse",
+        &[
+            "email",
+            "name",
+            "phone",
+            "address",
+            "country",
+            "network",
+            "validated",
+            "unvalidated_since",
+        ],
+    ),
 ];
 
 const CLASS_KEYS: &[&str] = &["provider", "provider_name", "confidence", "last_seen"];
@@ -224,6 +352,37 @@ pub fn assert_shape(answer: &Answer) {
         // object to find out whether the address is flagged at all.
         assert!(answer.wire.contains_key(&flag), "{tier}: {name} is served without {flag}");
         assert_detail(tier, name, spec, object, answer.wire.get(&flag));
+    }
+
+    if let Some(rows) = answer.wire.get("web") {
+        let rows = rows.as_array().unwrap_or_else(|| panic!("{tier}: web must be a list: {rows}"));
+        let flag = answer.wire.get("is_web");
+        assert!(flag.is_some(), "{tier}: web is served without is_web");
+        assert_eq!(
+            flag,
+            Some(&Value::Bool(!rows.is_empty())),
+            "{tier}: web's rows and is_web disagree"
+        );
+        for row in rows {
+            let fields = row.as_object().unwrap_or_else(|| panic!("{tier}: a web row: {row}"));
+            for key in fields.keys() {
+                assert!(WEB_KEYS.contains(&key.as_str()), "{tier}: web.{key} is not documented");
+            }
+        }
+    }
+    if let Some(hostname) = answer.wire.get("hostname") {
+        assert!(hostname.is_string(), "{tier}: hostname must be a string: {hostname}");
+    }
+    for (name, keys) in &OBJECTS {
+        let Some(object) = answer.wire.get(*name) else {
+            continue;
+        };
+        let fields = object
+            .as_object()
+            .unwrap_or_else(|| panic!("{tier}: {name} must be an object: {object}"));
+        for key in fields.keys() {
+            assert!(keys.contains(&key.as_str()), "{tier}: {name}.{key} is not documented");
+        }
     }
 }
 
