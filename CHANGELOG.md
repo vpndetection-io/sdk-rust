@@ -2,6 +2,16 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.2.0 - 2026-11-20
+
+### Features
+
+- Read the network, service, company and abuse members of an answer ([`63af7cd`](https://github.com/vpndetection-io/sdk-rust/commit/63af7cda728241924a2830bcd195f31184f01fc1))
+
+### Fixes
+
+- Cache a spent trial's or a reached cap's answer for a minute at most ([`409fc74`](https://github.com/vpndetection-io/sdk-rust/commit/409fc741e9be69f24744b0b1af047b5403b6d017))
+
 ## 6.1.1 - 2026-11-19
 
 ### Fixes
