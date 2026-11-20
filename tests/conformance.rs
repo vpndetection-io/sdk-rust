@@ -87,8 +87,17 @@ async fn a_bogon_is_answered_locally_in_the_widest_shape() {
     for name in &data.bogon_response.empty_objects {
         assert_empty_object(&wire, name);
     }
-    assert_object(&wire, "location", Some(&data.bogon_response.location));
-    assert_object(&wire, "asn", Some(&data.bogon_response.asn));
+    let bogon = &data.bogon_response;
+    for (name, want) in [
+        ("location", &bogon.location),
+        ("asn", &bogon.asn),
+        ("web", &bogon.web),
+        ("hostname", &bogon.hostname),
+        ("company", &bogon.company),
+        ("abuse", &bogon.abuse),
+    ] {
+        assert_member(&wire, name, Some(want));
+    }
     assert_eq!(stub.count(), 0, "a bogon must not reach the network");
 }
 
@@ -115,12 +124,27 @@ async fn a_lookup_preserves_absent_versus_false_across_every_plan_shape() {
         for name in &case.expect.empty_present {
             assert_empty_object(&wire, name);
         }
-        assert_object(&wire, "vpn", case.expect.vpn.as_ref());
-        assert_object(&wire, "hosting", case.expect.hosting.as_ref());
-        assert_object(&wire, "dcproxy", case.expect.dcproxy.as_ref());
-        assert_object(&wire, "pubproxy", case.expect.pubproxy.as_ref());
-        assert_object(&wire, "location", case.expect.location.as_ref());
-        assert_object(&wire, "asn", case.expect.asn.as_ref());
+        let expect = &case.expect;
+        for (name, want) in [
+            ("vpn", &expect.vpn),
+            ("hosting", &expect.hosting),
+            ("dcproxy", &expect.dcproxy),
+            ("pubproxy", &expect.pubproxy),
+            ("location", &expect.location),
+            ("asn", &expect.asn),
+            ("carrier", &expect.carrier),
+            ("satellite", &expect.satellite),
+            ("ssh", &expect.ssh),
+            ("smtp", &expect.smtp),
+            ("web", &expect.web),
+            ("dns_resolver", &expect.dns_resolver),
+            ("bittorrent", &expect.bittorrent),
+            ("company", &expect.company),
+            ("hostname", &expect.hostname),
+            ("abuse", &expect.abuse),
+        ] {
+            assert_member(&wire, name, want.as_ref());
+        }
     }
 }
 
@@ -366,10 +390,25 @@ fn assert_empty_object(wire: &Value, name: &str) {
     assert_eq!(got, &json!({}), "{name} must be present and EMPTY");
 }
 
-fn assert_object(wire: &Value, name: &str, want: Option<&Value>) {
+/// A member the case names, object, list or string, equal to the corpus's value.
+fn assert_member(wire: &Value, name: &str, want: Option<&Value>) {
     let Some(want) = want else {
         return;
     };
     let got = wire.get(name).unwrap_or_else(|| panic!("{name} is absent"));
-    assert_eq!(got, want, "{name}");
+    assert_eq!(numbers_as_floats(got), numbers_as_floats(want), "{name}");
+}
+
+/// A latitude the corpus writes as `0` decodes into an `f64` and renders back
+/// as `0.0`, which `serde_json` holds unequal, so every number is compared by
+/// its value.
+fn numbers_as_floats(value: &Value) -> Value {
+    match value {
+        Value::Number(n) => json!(n.as_f64().expect("a JSON number")),
+        Value::Array(items) => Value::Array(items.iter().map(numbers_as_floats).collect()),
+        Value::Object(fields) => {
+            Value::Object(fields.iter().map(|(k, v)| (k.clone(), numbers_as_floats(v))).collect())
+        }
+        other => other.clone(),
+    }
 }

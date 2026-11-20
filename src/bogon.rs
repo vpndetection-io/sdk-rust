@@ -7,7 +7,7 @@ use ipnet::IpNet;
 
 use crate::bogons::{BOGON_V4, BOGON_V6};
 use crate::lookup::Lookup;
-use crate::models::LookupResponse;
+use crate::models::{AbuseContact, Asn, Company, Location, LookupResponse};
 
 /// Whether an address is private, loopback, link-local, documentation,
 /// multicast or otherwise not routable on the public internet, including the
@@ -43,13 +43,15 @@ pub(crate) fn unmapped(ip: &str) -> Cow<'_, str> {
 }
 
 /// The answer a bogon gets: the full shape the API serves on its widest plan,
-/// every flag present and false, every detail object present and empty, a
-/// location and AS of empty strings and AS 0, and `is_bogon` true, as the API
-/// answers a bogon.
+/// every flag present and false, every detail object present and empty (the
+/// web servers' list empty), every key of the location, AS, company and abuse
+/// contact empty and every number 0, an empty hostname, and `is_bogon` true,
+/// as the API answers a bogon.
 ///
 /// Deliberately the WIDEST shape whatever plan you are on, so a caller must not
 /// infer which fields their plan includes from a bogon answer.
 pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
+    let empty = || Some(String::new());
     Lookup {
         is_bogon: true,
         answer: LookupResponse {
@@ -64,6 +66,14 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             is_dcproxy: Some(false),
             is_mobproxy: Some(false),
             is_pubproxy: Some(false),
+            is_anycast: Some(false),
+            is_carrier: Some(false),
+            is_satellite: Some(false),
+            is_ssh: Some(false),
+            is_smtp: Some(false),
+            is_web: Some(false),
+            is_dns_resolver: Some(false),
+            is_bittorrent: Some(false),
             vpn: Some(Box::default()),
             hosting: Some(Box::default()),
             relay: Some(Box::default()),
@@ -73,8 +83,43 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             dcproxy: Some(Box::default()),
             mobproxy: Some(Box::default()),
             pubproxy: Some(Box::default()),
-            location: Some(Box::default()),
-            asn: Some(Box::default()),
+            carrier: Some(Box::default()),
+            satellite: Some(Box::default()),
+            ssh: Some(Box::default()),
+            smtp: Some(Box::default()),
+            web: Some(Vec::new()),
+            dns_resolver: Some(Box::default()),
+            bittorrent: Some(Box::default()),
+            location: Some(Box::new(Location {
+                region: empty(),
+                region_code: empty(),
+                city: empty(),
+                postal_code: empty(),
+                latitude: Some(0.0),
+                longitude: Some(0.0),
+                accuracy_radius: Some(0),
+                geoname_id: empty(),
+                dma_code: empty(),
+                last_changed: empty(),
+                ..Location::default()
+            })),
+            asn: Some(Box::new(Asn { country: empty(), rpki_status: empty(), ..Asn::default() })),
+            company: Some(Box::new(Company {
+                r#type: empty(),
+                country: empty(),
+                ..Company::default()
+            })),
+            hostname: empty(),
+            abuse: Some(Box::new(AbuseContact {
+                name: empty(),
+                phone: empty(),
+                address: empty(),
+                country: empty(),
+                network: empty(),
+                validated: Some(false),
+                unvalidated_since: empty(),
+                ..AbuseContact::default()
+            })),
             // Only a free-plan key's answers carry it, and a bogon is answered here.
             trial_expired: None,
             // Only a paid key's answers carry it, and a bogon is answered here.

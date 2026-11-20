@@ -53,14 +53,22 @@ pub struct BogonCase {
     pub why: String,
 }
 
+/// Every key is read, and one this suite does not know fails to parse, so a
+/// member the corpus adds cannot pass here unasserted.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BogonResponse {
+    pub why: String,
     #[serde(rename = "flagsFalse")]
     pub flags_false: Vec<String>,
     #[serde(rename = "emptyObjects")]
     pub empty_objects: Vec<String>,
     pub location: Value,
     pub asn: Value,
+    pub web: Value,
+    pub hostname: Value,
+    pub company: Value,
+    pub abuse: Value,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +79,10 @@ pub struct LookupCase {
     pub expect: LookupExpect,
 }
 
+/// Every key is read, and one this suite does not know fails to parse, so an
+/// expectation the corpus adds cannot pass here unasserted.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LookupExpect {
     pub ip: String,
     #[serde(rename = "isBogon")]
@@ -88,6 +99,16 @@ pub struct LookupExpect {
     pub pubproxy: Option<Value>,
     pub location: Option<Value>,
     pub asn: Option<Value>,
+    pub carrier: Option<Value>,
+    pub satellite: Option<Value>,
+    pub ssh: Option<Value>,
+    pub smtp: Option<Value>,
+    pub web: Option<Value>,
+    pub dns_resolver: Option<Value>,
+    pub bittorrent: Option<Value>,
+    pub company: Option<Value>,
+    pub hostname: Option<Value>,
+    pub abuse: Option<Value>,
 }
 
 #[derive(Deserialize)]

@@ -10,7 +10,8 @@ use crate::models::LookupResponse;
 /// This is the single most important semantic in the library, and it is why
 /// every tier-gated flag is an `Option<bool>` rather than a `bool`.
 ///
-/// A detail object that is present but empty means the flag above it is false.
+/// A detail object that is present but empty means the flag above it is false,
+/// as does an empty `web` list.
 /// A populated one always carries every one of its keys, empty values included.
 ///
 /// The wire answer's fields are reachable straight off a `Lookup` through
@@ -81,5 +82,37 @@ impl Lookup {
 
     pub fn is_pubproxy_or_false(&self) -> bool {
         self.is_pubproxy.unwrap_or(false)
+    }
+
+    pub fn is_anycast_or_false(&self) -> bool {
+        self.is_anycast.unwrap_or(false)
+    }
+
+    pub fn is_carrier_or_false(&self) -> bool {
+        self.is_carrier.unwrap_or(false)
+    }
+
+    pub fn is_satellite_or_false(&self) -> bool {
+        self.is_satellite.unwrap_or(false)
+    }
+
+    pub fn is_ssh_or_false(&self) -> bool {
+        self.is_ssh.unwrap_or(false)
+    }
+
+    pub fn is_smtp_or_false(&self) -> bool {
+        self.is_smtp.unwrap_or(false)
+    }
+
+    pub fn is_web_or_false(&self) -> bool {
+        self.is_web.unwrap_or(false)
+    }
+
+    pub fn is_dns_resolver_or_false(&self) -> bool {
+        self.is_dns_resolver.unwrap_or(false)
+    }
+
+    pub fn is_bittorrent_or_false(&self) -> bool {
+        self.is_bittorrent.unwrap_or(false)
     }
 }
