@@ -59,10 +59,13 @@ mod oauth;
 mod objects;
 mod transport;
 
-// The OAuth unit tests reuse the integration suite's stub, which names this
-// crate from outside.
+// The unit tests reuse the integration suite's stub, loaded once for them all,
+// which names this crate from outside.
 #[cfg(test)]
 extern crate self as vpndetection;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
 
 // The generated models refer to themselves as `crate::models`, so this binding
 // is what lets scripts/generate.sh drop their output in untouched.

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use indexmap::IndexMap;
@@ -22,6 +22,11 @@ pub const DEFAULT_BASE_URL: &str = "https://api.vpndetection.io";
 
 const DEFAULT_CACHE_CAPACITY: u64 = 10_000;
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+/// The longest an answer marked `trial_expired` or `cap_reached` is cached. A
+/// plan change or a raised cap ends what it says, so the client's TTL would
+/// keep serving it long after; not caching it at all would send every repeat of
+/// a busy address to the API.
+const REDUCED_ANSWER_TTL: Duration = Duration::from_secs(60);
 const DEFAULT_CONCURRENCY: usize = 8;
 const DEFAULT_RETRIES: u32 = 2;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -65,6 +70,9 @@ struct Inner {
     concurrency: usize,
     retries: u32,
     timeout: Duration,
+    /// When each cached answer expires, read by the tests that pin its life.
+    #[cfg(test)]
+    expiries: Arc<std::sync::Mutex<HashMap<String, Instant>>>,
 }
 
 impl Client {
@@ -572,14 +580,23 @@ impl ClientBuilder {
                 .build()?,
         };
 
+        let life = AnswerLife {
+            ttl,
+            #[cfg(test)]
+            expiries: Arc::default(),
+        };
+        #[cfg(test)]
+        let expiries = Arc::clone(&life.expiries);
         Ok(Client(Arc::new(Inner {
             transport: Transport::new(http, base_url.trim_end_matches('/').to_owned(), api_key),
             cache: (!self.cache_off)
-                .then(|| Cache::builder().max_capacity(capacity).time_to_live(ttl).build()),
+                .then(|| Cache::builder().max_capacity(capacity).expire_after(life).build()),
             flights: Flights::default(),
             concurrency,
             retries: self.retries.unwrap_or(DEFAULT_RETRIES),
             timeout,
+            #[cfg(test)]
+            expiries,
         })))
     }
 }
@@ -722,6 +739,45 @@ impl Retry for OauthError {
     }
 }
 
+/// How long a cached answer lives: the client's TTL, or [`REDUCED_ANSWER_TTL`]
+/// when that is shorter and the answer is marked `trial_expired` or
+/// `cap_reached`. One policy for the cache, so a batch's entries live as a
+/// lookup's do.
+struct AnswerLife {
+    ttl: Duration,
+    #[cfg(test)]
+    expiries: Arc<std::sync::Mutex<HashMap<String, Instant>>>,
+}
+
+impl AnswerLife {
+    fn of(&self, answer: &Lookup) -> Duration {
+        let reduced = answer.trial_expired == Some(true) || answer.cap_reached == Some(true);
+        if reduced { self.ttl.min(REDUCED_ANSWER_TTL) } else { self.ttl }
+    }
+}
+
+impl moka::Expiry<String, Lookup> for AnswerLife {
+    #[cfg_attr(not(test), allow(unused_variables))]
+    fn expire_after_create(&self, ip: &String, answer: &Lookup, at: Instant) -> Option<Duration> {
+        let life = self.of(answer);
+        #[cfg(test)]
+        self.expiries.lock().unwrap().insert(ip.clone(), at + life);
+        Some(life)
+    }
+
+    /// A replaced answer lives as long as the new one may, never on the old
+    /// one's remaining time.
+    fn expire_after_update(
+        &self,
+        ip: &String,
+        answer: &Lookup,
+        at: Instant,
+        _remaining: Option<Duration>,
+    ) -> Option<Duration> {
+        self.expire_after_create(ip, answer, at)
+    }
+}
+
 fn dedupe<I, S>(ips: I) -> Vec<String>
 where
     I: IntoIterator<Item = S>,
@@ -730,3 +786,6 @@ where
     let mut seen = std::collections::HashSet::new();
     ips.into_iter().map(|ip| ip.as_ref().to_owned()).filter(|ip| seen.insert(ip.clone())).collect()
 }
+
+#[cfg(test)]
+mod tests;

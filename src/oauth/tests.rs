@@ -3,14 +3,12 @@
 // A unit test because the seam is private; tests/oauth.rs covers the rest of
 // the accessor through the public surface, the real clock included.
 
-#[path = "../../tests/support/mod.rs"]
-mod support;
-
 use std::sync::Mutex;
 use std::time::Duration;
 
 use super::{OauthOptions, PollClock};
 use crate::DeviceAuthorization;
+use crate::support;
 use support::corpus;
 use support::oauth::{assert_failure, form, route};
 use support::{REQUEST_BOUND, Stub};
