@@ -165,7 +165,7 @@ pub async fn client_for(rung: &Rung) -> (Client, Arc<Recorder>) {
 /// One entry per dataset the API answers about. `required` is what a POPULATED
 /// detail object carries on every tier; `optional` is the max-only remainder,
 /// which is absent rather than empty on a lower plan.
-pub const MEMBERS: [(&str, Detail); 14] = [
+pub const MEMBERS: [(&str, Detail); 15] = [
     (
         "vpn",
         Detail {
@@ -177,6 +177,24 @@ pub const MEMBERS: [(&str, Detail); 14] = [
     ("relay", Detail { required: CLASS_KEYS, optional: &[] }),
     ("tor", Detail { required: CLASS_KEYS, optional: &[] }),
     ("cdn", Detail { required: CLASS_KEYS, optional: &[] }),
+    (
+        "bot",
+        Detail {
+            required: &[
+                "provider",
+                "provider_name",
+                "agents",
+                "categories",
+                "verified",
+                "identity",
+                "verified_by",
+                "confidence",
+                "first_seen",
+                "last_seen",
+            ],
+            optional: &[],
+        },
+    ),
     ("resproxy", Detail { required: PROXY_KEYS, optional: &[] }),
     ("dcproxy", Detail { required: PROXY_KEYS, optional: &[] }),
     ("mobproxy", Detail { required: PROXY_KEYS, optional: &[] }),
