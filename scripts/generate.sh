@@ -55,10 +55,24 @@ NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 # them through - so the crate's public surface does not require the dep.
 
 rm -rf .gen
-mkdir -p .gen
+mkdir -p .gen/spec
+
+# The generator reads a copy of the pinned spec with two of its changes held
+# back until a major, so a minor changes no public type: the satellite's `asn`
+# stays the i32 it has been, not the i64 that `format: int64` asks for, and the
+# AS's `country` and `rpki_status` stay Option<String>, as they were while the
+# spec left them optional. The pin itself stays the published document. Either
+# edit finding nothing to change stops the script, rather than reaching the
+# release unnoticed.
+perl -0777 -pe '
+    s{(\n    SatelliteDetail:\n(?: {6,}[^\n]*\n)*? {8}asn:\n {10}type: integer\n) {10}format: int64\n}{$1}
+        or die "the satellite no longer gives its asn format: int64\n";
+    s{(\n    Asn:\n(?: {6,}[^\n]*\n)*? {6}required:\n(?: {8}- \w+\n)*?) {8}- country\n {8}- rpki_status\n}{$1}
+        or die "the AS no longer requires country and rpki_status\n";
+' spec/openapi.yaml >.gen/spec/openapi.yaml
 
 docker run --rm \
-    -v "$PWD/spec:/spec:ro" \
+    -v "$PWD/.gen/spec:/spec:ro" \
     -v "$PWD/.gen:/out" \
     "$GENERATOR_IMAGE" generate \
     -i /spec/openapi.yaml \

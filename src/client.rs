@@ -353,7 +353,7 @@ impl Client {
         retries: u32,
         timeout: Duration,
     ) -> Vec<(String, Result<Lookup, Error>)> {
-        let request = BatchLookupRequest { ips: chunk.clone() };
+        let request = BatchLookupRequest { ips: chunk.clone(), user_agents: None };
         let answered: Result<BatchAnswer, Error> =
             with_retry(retries, || self.0.transport.post_json("/batch", &request, timeout)).await;
         let mut body = match answered {

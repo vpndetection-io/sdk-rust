@@ -62,6 +62,7 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             is_relay: Some(false),
             is_tor: Some(false),
             is_cdn: Some(false),
+            is_bot: Some(false),
             is_resproxy: Some(false),
             is_dcproxy: Some(false),
             is_mobproxy: Some(false),
@@ -79,6 +80,7 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
             relay: Some(Box::default()),
             tor: Some(Box::default()),
             cdn: Some(Box::default()),
+            bot: Some(Box::default()),
             resproxy: Some(Box::default()),
             dcproxy: Some(Box::default()),
             mobproxy: Some(Box::default()),
@@ -120,6 +122,8 @@ pub(crate) fn bogon_lookup(ip: &str) -> Lookup {
                 unvalidated_since: empty(),
                 ..AbuseContact::default()
             })),
+            // Only an answer to a lookup that sent a user agent carries it.
+            user_agent: None,
             // Only a free-plan key's answers carry it, and a bogon is answered here.
             trial_expired: None,
             // Only a paid key's answers carry it, and a bogon is answered here.
