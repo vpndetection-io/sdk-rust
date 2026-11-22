@@ -2,6 +2,17 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.3.0 - 2026-11-22
+
+### Features
+
+- Re-pin the spec to 2026.11.22: is_bot and bot, and the AS's country and RPKI status required ([`f888b71`](https://github.com/vpndetection-io/sdk-rust/commit/f888b714bd8051690f9d8578ae47dee167bc31c2))
+- Read whether a bot uses an address, and whose: is_bot and bot ([`e4b687f`](https://github.com/vpndetection-io/sdk-rust/commit/e4b687f50d69ef24bac31a3735b46456585d8815))
+
+### Fixes
+
+- Refuse an answer without the AS's country or RPKI status, as the API always sends them ([`ef26652`](https://github.com/vpndetection-io/sdk-rust/commit/ef26652e9167c75c9f5b7ce01495ade60ff60f60))
+
 ## 6.2.0 - 2026-11-20
 
 ### Features
