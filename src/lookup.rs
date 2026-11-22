@@ -84,6 +84,10 @@ impl Lookup {
         self.is_pubproxy.unwrap_or(false)
     }
 
+    pub fn is_bot_or_false(&self) -> bool {
+        self.is_bot.unwrap_or(false)
+    }
+
     pub fn is_anycast_or_false(&self) -> bool {
         self.is_anycast.unwrap_or(false)
     }

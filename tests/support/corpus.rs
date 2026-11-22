@@ -97,6 +97,7 @@ pub struct LookupExpect {
     pub hosting: Option<Value>,
     pub dcproxy: Option<Value>,
     pub pubproxy: Option<Value>,
+    pub bot: Option<Value>,
     pub location: Option<Value>,
     pub asn: Option<Value>,
     pub carrier: Option<Value>,

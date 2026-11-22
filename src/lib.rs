@@ -4,8 +4,8 @@
 //!
 //! Start with [`Client::new`] and [`Client::lookup`]. No API key is needed:
 //! without one a lookup is on Unlimited, the free plan, answering `ip`,
-//! `is_vpn`, the Tor and relay members, `is_anycast`, `hostname`, `location`
-//! and `asn` with no daily or monthly cap. A batch needs a paid plan.
+//! `is_vpn`, the Tor and relay members, `is_bot`, `is_anycast`, `hostname`,
+//! `location` and `asn` with no daily or monthly cap. A batch needs a paid plan.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), vpndetection::Error> {
@@ -90,7 +90,7 @@ pub use oauth::{
 // formats compare against the same type instead of a parallel one.
 pub use generated::models::download::Outcome as DownloadOutcome;
 pub use generated::models::{
-    ClassDetail, Database, DatabaseFormatSize, DatabaseMetadata, DatabaseMetadataColumn,
+    BotDetail, ClassDetail, Database, DatabaseFormatSize, DatabaseMetadata, DatabaseMetadataColumn,
     DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, PubproxyDetail, VpnDetail,
 };
 pub use generated::models::{DatabaseFormat, Standing};

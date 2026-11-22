@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use support::corpus::{self, Corpus};
 use support::{Route, Stub};
-use vpndetection::{BatchOptions, Lookup, is_bogon};
+use vpndetection::{BatchOptions, BotDetail, Lookup, is_bogon};
 
 #[test]
 fn is_bogon_matches_the_canonical_ranges() {
@@ -130,6 +130,7 @@ async fn a_lookup_preserves_absent_versus_false_across_every_plan_shape() {
             ("hosting", &expect.hosting),
             ("dcproxy", &expect.dcproxy),
             ("pubproxy", &expect.pubproxy),
+            ("bot", &expect.bot),
             ("location", &expect.location),
             ("asn", &expect.asn),
             ("carrier", &expect.carrier),
@@ -145,6 +146,33 @@ async fn a_lookup_preserves_absent_versus_false_across_every_plan_shape() {
         ] {
             assert_member(&wire, name, want.as_ref());
         }
+        if let Some(want) = &expect.bot {
+            assert_bot(&case.name, result.bot.as_deref(), want);
+        }
+    }
+}
+
+/// A served `bot` read key by key off the typed detail rather than off a
+/// serialization, so a member that decodes from the wrong wire name, or a list
+/// read out of order, is caught where it lives.
+fn assert_bot(case: &str, got: Option<&BotDetail>, want: &Value) {
+    let bot = got.unwrap_or_else(|| panic!("{case}: bot is absent"));
+    let want = want.as_object().unwrap_or_else(|| panic!("{case}: expect.bot is no object"));
+    for (key, want) in want {
+        let got = match key.as_str() {
+            "provider" => json!(bot.provider),
+            "provider_name" => json!(bot.provider_name),
+            "agents" => json!(bot.agents),
+            "categories" => json!(bot.categories),
+            "verified" => json!(bot.verified),
+            "identity" => json!(bot.identity),
+            "verified_by" => json!(bot.verified_by),
+            "confidence" => json!(bot.confidence),
+            "first_seen" => json!(bot.first_seen),
+            "last_seen" => json!(bot.last_seen),
+            other => panic!("{case}: BotDetail has no member {other}"),
+        };
+        assert_eq!(&got, want, "{case}: bot.{key}");
     }
 }
 

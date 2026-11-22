@@ -78,8 +78,8 @@ struct Inner {
 impl Client {
     /// A client with no API key, against production. Without a key a lookup is
     /// on Unlimited, the free plan: `ip`, `is_vpn`, the Tor and relay members,
-    /// `is_anycast`, `hostname`, `location` and `asn`, with no daily or monthly
-    /// cap. A batch needs a paid plan.
+    /// `is_bot`, `is_anycast`, `hostname`, `location` and `asn`, with no daily or
+    /// monthly cap. A batch needs a paid plan.
     pub fn new() -> Result<Self, Error> {
         Self::builder().build()
     }
