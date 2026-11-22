@@ -53,6 +53,7 @@ mod enums;
 mod error;
 mod flight;
 mod generated;
+mod held;
 mod lookup;
 pub mod middleware;
 mod oauth;

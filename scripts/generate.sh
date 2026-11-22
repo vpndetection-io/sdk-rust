@@ -121,6 +121,19 @@ if perl -0777 -ne 'while (/(#\[serde\((?:[^\]]|\n)*?\)\])\s+pub \w+: [^\n]*serde
     exit 1
 fi
 
+# The AS's `country` and `rpki_status` are held back as Option<String> above,
+# while the API serves both on every answer, so each still reads as required:
+# an answer without one, or with a null there, is one this client cannot read,
+# as it is for any other required member. A held member in another shape stops
+# the script.
+for member in country rpki_status; do
+    MEMBER="$member" perl -0777 -pi -e '
+        my $m = $ENV{MEMBER};
+        s/(#\[serde\(rename = "$m",) (skip_serializing_if = "Option::is_none"\)\]\s+pub $m: Option<String>,)/$1 deserialize_with = "crate::held::required", $2/
+            or die "Asn no longer has an optional $m: teach this script its shape\n";
+    ' src/generated/models/asn.rs
+done
+
 # A closed vocabulary in an ANSWER is the API's to extend, and an exhaustive
 # enum failed the whole call on a value it was not built with (5.14.0). Each
 # generated enum is opened: `#[non_exhaustive]`, no `Copy`, and a last variant,

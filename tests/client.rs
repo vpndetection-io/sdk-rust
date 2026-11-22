@@ -587,6 +587,66 @@ async fn a_batch_entry_it_cannot_read_fails_only_its_address() {
     }
 }
 
+/// The AS's `country` and `rpki_status` stay `Option<String>` until a major,
+/// while the API serves both on every answer that carries the AS: an answer
+/// without one, or with a null there, is one this client cannot read, retried
+/// like an outage, and a batch entry fails alone. An answer with no AS at all
+/// is still read.
+#[tokio::test]
+async fn an_as_without_its_country_or_rpki_status_is_a_retried_server_error() {
+    const AS: &str = r#""asn":15169,"name":"Google LLC","domain":"google.com","type":"hosting","prefix":"66.249.64.0/20""#;
+    let answer =
+        |ip: &str, rest: &str| format!(r#"{{"ip":"{ip}","is_vpn":false,"asn":{{{AS}{rest}}}}}"#);
+    let well_formed = answer("9.9.9.9", r#","country":"US","rpki_status":"valid""#);
+    let stub = Stub::start([
+        ("/9.9.9.9".to_owned(), Route::ok(well_formed.clone())),
+        ("/8.8.4.4".to_owned(), Route::ok(r#"{"ip":"8.8.4.4","is_vpn":false}"#)),
+    ])
+    .await;
+    let client = stub.client().no_cache().retries(0).build().expect("build");
+    let read = client.lookup("9.9.9.9").await.expect("the well-formed answer");
+    let asn = read.asn.as_deref().expect("its AS");
+    assert_eq!((asn.country.as_deref(), asn.rpki_status.as_deref()), (Some("US"), Some("valid")));
+    assert!(client.lookup("8.8.4.4").await.expect("an answer with no AS").asn.is_none());
+
+    let cases = [
+        ("no country", r#","rpki_status":"valid""#),
+        ("no rpki_status", r#","country":"US""#),
+        ("a null country", r#","country":null,"rpki_status":"valid""#),
+        ("a null rpki_status", r#","country":"US","rpki_status":null"#),
+    ];
+    for (name, rest) in cases {
+        let body = answer("9.9.9.9", rest);
+        for (call, path) in [("lookup", "/9.9.9.9"), ("my_ip", "/myip")] {
+            let stub = Stub::start([]).await;
+            stub.sequence(path, [Route::ok(&body), Route::ok(&body), Route::ok(&body)]);
+            let client = stub.client().no_cache().retries(2).build().expect("build");
+            let outcome = match call {
+                "lookup" => client.lookup("9.9.9.9").await,
+                _ => client.my_ip().await,
+            };
+            let Err(err) = outcome else { panic!("{call}, {name}: read as an answer") };
+            assert_eq!(err.kind(), ErrorKind::ServerError, "{call}, {name}: {err}");
+            assert_eq!(err.status(), Some(200), "{call}, {name}: the status");
+            assert_eq!(stub.count(), 3, "{call}, {name}: retried like an outage");
+        }
+
+        let stub = Stub::start([]).await;
+        let served = answer("8.8.4.4", r#","country":"US","rpki_status":"valid""#);
+        let entries =
+            format!(r#"{{"results":{{"9.9.9.9":{body},"8.8.4.4":{served}}},"errors":{{}}}}"#);
+        stub.sequence("/batch", [Route::ok(entries)]);
+        let client = stub.client().api_key("key").retries(2).build().expect("build");
+        let mut answers = client.lookup_batch(["9.9.9.9", "8.8.4.4"], BatchOptions::new()).await;
+        let Err(err) = answers.swap_remove("9.9.9.9").expect("answered") else {
+            panic!("lookup_batch, {name}: read as an answer")
+        };
+        assert_eq!(err.kind(), ErrorKind::ServerError, "lookup_batch, {name}: {err}");
+        assert_eq!(err.status(), Some(200), "lookup_batch, {name}: the status");
+        answers.swap_remove("8.8.4.4").expect("answered").expect("the other entry");
+    }
+}
+
 /// A date member is read only in the form its `format` names, on a day and at
 /// a time that exist. chrono's own reader took `2026-10-5`, ` 2026-10-20`,
 /// `+0500`, a space for the `T` and a leap second as some date through 5.9.0,

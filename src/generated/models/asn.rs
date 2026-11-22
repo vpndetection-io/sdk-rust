@@ -30,10 +30,18 @@ pub struct Asn {
     #[serde(rename = "prefix")]
     pub prefix: String,
     /// The country the AS's registry assigned it to.
-    #[serde(rename = "country", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "country",
+        deserialize_with = "crate::held::required",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub country: Option<String>,
     /// The announcement's RPKI status: valid, invalid or not_found.
-    #[serde(rename = "rpki_status", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "rpki_status",
+        deserialize_with = "crate::held::required",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub rpki_status: Option<String>,
 }
 

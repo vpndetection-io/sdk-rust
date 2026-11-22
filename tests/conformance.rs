@@ -346,7 +346,7 @@ async fn every_vocabulary_value_comes_back_as_served() {
 /// past an `i32`.
 #[tokio::test]
 async fn an_as_number_past_an_i32_reads() {
-    let body = r#"{"ip":"45.83.91.1","is_vpn":false,"asn":{"asn":4200000001,"name":"n","domain":"d","type":"isp","prefix":"45.83.91.0/24"}}"#;
+    let body = r#"{"ip":"45.83.91.1","is_vpn":false,"asn":{"asn":4200000001,"name":"n","domain":"d","type":"isp","prefix":"45.83.91.0/24","country":"NL","rpki_status":"valid"}}"#;
     let stub = Stub::start([("/45.83.91.1".to_string(), Route::ok(body))]).await;
     let client = stub.client().build().expect("build");
 
