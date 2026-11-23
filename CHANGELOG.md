@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.3.1 - 2026-11-23
+
+### Fixes
+
+- Require futures-util 0.3.31, past RUSTSEC-2020-0062 ([`63393f0`](https://github.com/vpndetection-io/sdk-rust/commit/63393f0a40b774ea3043ba6c2484f348d91fc10a))
+
 ## 6.3.0 - 2026-11-22
 
 ### Features
