@@ -22,7 +22,7 @@ use serde_json::Value as Json;
 pub use condition::{Bound, Condition, ConditionError, Conditions, Value, from_json};
 pub use selectors::{IpSelector, RequestView, framework_ip, header, xff};
 
-use crate::{Client, Error, is_bogon};
+use crate::{Client, Error, LookupOptions, Verdict, is_bogon};
 
 /// Defaults set for a request path rather than for a script: failing open
 /// quickly beats holding a visitor while we try again.
@@ -73,6 +73,15 @@ pub struct Options {
     /// Block when the lookup itself fails. Our outage should not become yours.
     pub fail_closed: bool,
 
+    /// Send the request's own `User-Agent` header with its lookup, and never
+    /// refuse a request whose answer's `user_agent` verdict is `verified`,
+    /// whatever [`Options::block_condition`] matches; the answer is still
+    /// attached. An absent or empty header sends none. A keyless client, or a
+    /// free key past its trial, is never answered a verdict, so nothing is let
+    /// through and [`Options::on_missing_field`] says so once. Off by default,
+    /// so the cache holds one answer per address rather than one per agent.
+    pub allow_bots: bool,
+
     pub on_missing_field: OnMissingField,
 
     pub on_warn: Option<Warn>,
@@ -89,6 +98,7 @@ impl Default for Options {
             ip_selector: None,
             block_condition: None,
             fail_closed: false,
+            allow_bots: false,
             on_missing_field: OnMissingField::default(),
             on_warn: None,
         }
@@ -149,6 +159,12 @@ impl Options {
     }
 
     #[must_use]
+    pub fn allow_bots(mut self, allow_bots: bool) -> Self {
+        self.allow_bots = allow_bots;
+        self
+    }
+
+    #[must_use]
     pub fn on_missing_field(mut self, on: OnMissingField) -> Self {
         self.on_missing_field = on;
         self
@@ -184,6 +200,7 @@ pub struct Core {
     selector: IpSelector,
     condition: Option<Conditions>,
     fail_closed: bool,
+    allow_bots: bool,
     on_missing_field: OnMissingField,
     on_warn: Option<Warn>,
     warned: Arc<Mutex<HashSet<String>>>,
@@ -218,6 +235,7 @@ impl Core {
             selector: options.ip_selector.unwrap_or_else(selectors::framework_ip),
             condition: options.block_condition,
             fail_closed: options.fail_closed,
+            allow_bots: options.allow_bots,
             on_missing_field: options.on_missing_field,
             on_warn: options.on_warn,
             warned: Arc::new(Mutex::new(HashSet::new())),
@@ -259,7 +277,16 @@ impl Core {
             ));
         }
 
-        let result = match self.client.lookup(&ip).await {
+        let mut lookup = LookupOptions::new();
+        let agent = match self.allow_bots {
+            true => (view.header)("user-agent").map(|agent| agent.trim().to_owned()),
+            false => None,
+        }
+        .filter(|agent| !agent.is_empty());
+        if let Some(agent) = &agent {
+            lookup = lookup.user_agent(agent.clone());
+        }
+        let result = match self.client.lookup_with(&ip, lookup).await {
             Ok(result) => result,
             Err(error) => {
                 return Ok(Lookup {
@@ -271,8 +298,20 @@ impl Core {
             }
         };
 
+        if agent.is_some() && !result.is_bogon && result.user_agent.is_none() {
+            self.report(
+                "allow_bots sent the request's user agent, and the answer carries no user_agent \
+                 verdict, so no crawler is let through: a keyless client, or a free key past its \
+                 trial, is never answered one"
+                    .to_owned(),
+            )?;
+        }
+        let verified = agent.is_some()
+            && result.user_agent.as_ref().is_some_and(|ua| ua.verdict == Verdict::Verified);
+
         let blocked = match &self.condition {
             None => false,
+            Some(_) if verified => false,
             Some(condition) => {
                 // Only rendered when a condition exists: matching is by WIRE
                 // name, and rendering it for every request that never had a
@@ -293,13 +332,20 @@ impl Core {
         if missing.is_empty() {
             return Ok(());
         }
-        let message = format!(
+        self.report(format!(
             "block_condition names {}, which your plan does not include, so those terms can \
              never match. An absent member means \"not in your plan\", not \"checked, and no\".",
             missing.join(", ")
-        );
-        if self.on_missing_field == OnMissingField::Fail {
-            return Err(ConditionError::new(message));
+        ))
+    }
+
+    /// Says what the plan does not serve as [`OnMissingField`] asks: an error,
+    /// a warning once, or nothing.
+    fn report(&self, message: String) -> Result<(), ConditionError> {
+        match self.on_missing_field {
+            OnMissingField::Ignore => return Ok(()),
+            OnMissingField::Fail => return Err(ConditionError::new(message)),
+            OnMissingField::Warn => {}
         }
         self.warn(&message);
         Ok(())
