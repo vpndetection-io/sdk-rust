@@ -2,6 +2,17 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.4.0 - 2026-11-24
+
+### Features
+
+- Send a request's user agent with a lookup, a batch or my_ip, and read its verdict ([`7cd1da0`](https://github.com/vpndetection-io/sdk-rust/commit/7cd1da044fb29320424a02e79612ebda335844b5))
+- Middleware: allow_bots lets a verified crawler through ([`0c96296`](https://github.com/vpndetection-io/sdk-rust/commit/0c96296d6d8945445288009bfd424d27c8caff5e))
+
+### Fixes
+
+- Re-pin the spec to 2026.11.23, and refuse a detail's day that is not a date ([`d98e3b4`](https://github.com/vpndetection-io/sdk-rust/commit/d98e3b4294041c922498007c7bb34a3d335b69b5))
+
 ## 6.3.1 - 2026-11-23
 
 ### Fixes
