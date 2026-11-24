@@ -57,18 +57,27 @@ NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 rm -rf .gen
 mkdir -p .gen/spec
 
-# The generator reads a copy of the pinned spec with two of its changes held
+# The generator reads a copy of the pinned spec with three of its changes held
 # back until a major, so a minor changes no public type: the satellite's `asn`
-# stays the i32 it has been, not the i64 that `format: int64` asks for, and the
+# stays the i32 it has been, not the i64 that `format: int64` asks for; the
 # AS's `country` and `rpki_status` stay Option<String>, as they were while the
-# spec left them optional. The pin itself stays the published document. Either
-# edit finding nothing to change stops the script, rather than reaching the
-# release unnoticed.
-perl -0777 -pe '
+# spec left them optional; and the `first_seen` and `last_seen` of the bot,
+# SSH, SMTP, web, DNS resolver and BitTorrent details stay strings, as they
+# were before the spec named them `format: date`. The pin itself stays the
+# published document. Any edit finding nothing to change stops the script,
+# rather than reaching the release unnoticed.
+SEEN="BotDetail SshDetail SmtpDetail WebDetail DnsResolverDetail BitTorrentDetail"
+SEEN="$SEEN" perl -0777 -pe '
     s{(\n    SatelliteDetail:\n(?: {6,}[^\n]*\n)*? {8}asn:\n {10}type: integer\n) {10}format: int64\n}{$1}
         or die "the satellite no longer gives its asn format: int64\n";
     s{(\n    Asn:\n(?: {6,}[^\n]*\n)*? {6}required:\n(?: {8}- \w+\n)*?) {8}- country\n {8}- rpki_status\n}{$1}
         or die "the AS no longer requires country and rpki_status\n";
+    for my $schema (split " ", $ENV{SEEN}) {
+        for my $member (qw(first_seen last_seen)) {
+            s{(\n    $schema:\n(?: {6,}[^\n]*\n)*? {8}$member:\n {10}type: string\n) {10}format: date\n}{$1}
+                or die "$schema no longer gives its $member format: date\n";
+        }
+    }
 ' spec/openapi.yaml >.gen/spec/openapi.yaml
 
 docker run --rm \
@@ -132,6 +141,21 @@ for member in country rpki_status; do
         s/(#\[serde\(rename = "$m",) (skip_serializing_if = "Option::is_none"\)\]\s+pub $m: Option<String>,)/$1 deserialize_with = "crate::held::required", $2/
             or die "Asn no longer has an optional $m: teach this script its shape\n";
     ' src/generated/models/asn.rs
+done
+
+# The `first_seen` and `last_seen` held back as strings above are still dates
+# on the wire, so each reads through src/dates.rs, which refuses anything but
+# `YYYY-MM-DD` on a day that exists and keeps the value as served. A held member
+# in another shape stops the script.
+for model in bot_detail ssh_detail smtp_detail web_detail dns_resolver_detail bit_torrent_detail; do
+    for member in first_seen last_seen; do
+        MEMBER="$member" perl -0777 -pi -e '
+            my $m = $ENV{MEMBER};
+            s/(#\[serde\(rename = "$m",) (skip_serializing_if = "Option::is_none"\)\]\s+pub $m: Option<String>,)/$1 default, deserialize_with = "crate::dates::option_date_string", $2/
+                or s/(#\[serde\(rename = "$m")(\)\]\s+pub $m: String,)/$1, deserialize_with = "crate::dates::date_string"$2/
+                or die "no $m held back as a string here: teach this script its shape\n";
+        ' "src/generated/models/$model.rs"
+    done
 done
 
 # A closed vocabulary in an ANSWER is the API's to extend, and an exhaustive

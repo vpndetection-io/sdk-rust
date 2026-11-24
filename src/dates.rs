@@ -55,6 +55,31 @@ pub(crate) fn option_date<'de, D: Deserializer<'de>>(
         .transpose()
 }
 
+/// A required `format: date` member whose field stays the `String` it was
+/// before the spec named its format, until a major: read as [`date`] reads
+/// one, and kept as served.
+pub(crate) fn date_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    match parse_date(&value) {
+        Some(_) => Ok(value),
+        None => Err(D::Error::custom(format!("{value:?} is not a date"))),
+    }
+}
+
+/// An optional `format: date` member whose field stays an `Option<String>`,
+/// as [`date_string`] keeps a required one: absent or null is `None`. Its field
+/// also needs `default`.
+pub(crate) fn option_date_string<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| match parse_date(&value) {
+            Some(_) => Ok(value),
+            None => Err(D::Error::custom(format!("{value:?} is not a date"))),
+        })
+        .transpose()
+}
+
 /// An optional, nullable `format: date-time` member, read as
 /// `serde_with::rust::double_option` reads one: absent is `None` (through the
 /// field's `default`), null is `Some(None)` and a date-time `Some(Some(..))`.
