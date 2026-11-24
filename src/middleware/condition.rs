@@ -334,7 +334,14 @@ fn matches_object(condition: &Condition, value: Option<&Json>) -> bool {
 /// An ABSENT member arrives here as `None`, which is exactly what "not in your
 /// plan" looks like. Every branch below must therefore reject it, which is what
 /// makes an unserved member fail a match rather than pass it.
+///
+/// A member the answer holds as a list (`pubproxy.protocols`, the `web` rows)
+/// matches when any element matches the term, so an object term must match
+/// one element whole. Compared against the list itself, no term ever fired.
 fn matches_value(want: &Value, got: Option<&Json>) -> bool {
+    if let Some(Json::Array(items)) = got {
+        return items.iter().any(|item| matches_value(want, Some(item)));
+    }
     match want {
         Value::AnyOf(entries) => entries.iter().any(|entry| matches_value(entry, got)),
         Value::Nested(nested) => got.is_some() && matches_object(nested, got),
