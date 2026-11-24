@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -96,13 +97,18 @@ impl Client {
     /// that request rather than sending their own. An IPv4-mapped address
     /// (`::ffff:8.8.8.8`) is the IPv4 address it carries: judged, sent and cached
     /// as that, so the answer names `8.8.8.8`.
+    ///
+    /// With [`LookupOptions::user_agent`], the answer is cached and shared on
+    /// the address and that agent together: apart from the address's plain
+    /// answer and from another agent's. A bogon's answer carries no `user_agent`.
     pub async fn lookup(&self, ip: &str) -> Result<Lookup, Error> {
         self.lookup_with(ip, LookupOptions::new()).await
     }
 
-    /// [`Client::lookup`], with this call's own retry budget and timeout. A call
-    /// that joins a request already in flight takes that request's answer, sent
-    /// under the options of the call that led it.
+    /// [`Client::lookup`], with this call's own retry budget, timeout and user
+    /// agent. A call that joins a request already in flight for the same address
+    /// and agent takes that request's answer, sent under the options of the call
+    /// that led it.
     pub async fn lookup_with(&self, ip: &str, opts: LookupOptions) -> Result<Lookup, Error> {
         let timeout = self.call_timeout(opts.timeout)?;
         let retries = opts.retries.unwrap_or(self.0.retries);
@@ -111,15 +117,18 @@ impl Client {
         if is_bogon(ip) {
             return Ok(bogon_lookup(ip));
         }
+        let agent = opts.agent();
         let Some(cache) = &self.0.cache else {
-            return self.serve(ip, retries, timeout).await;
+            return self.serve(ip, agent, retries, timeout).await;
         };
+        let key = answer_key(ip, agent);
+        let key: &str = &key;
 
         loop {
-            if let Some(hit) = cache.get(ip).await {
+            if let Some(hit) = cache.get(key).await {
                 return Ok(hit);
             }
-            let (mut pilot, joined) = self.0.flights.board([ip]);
+            let (mut pilot, joined) = self.0.flights.board([key]);
             if let Some((_, flight)) = joined.into_iter().next() {
                 match flight.await {
                     Ok(landed) => return restate(&landed),
@@ -129,25 +138,32 @@ impl Client {
             }
             // A request that landed between the miss above and boarding cached
             // its answer before leaving the board, so it is found here.
-            let answer = match cache.get(ip).await {
+            let answer = match cache.get(key).await {
                 Some(hit) => Ok(hit),
                 None => {
-                    let answer = self.serve(ip, retries, timeout).await;
+                    let answer = self.serve(ip, agent, retries, timeout).await;
                     if let Ok(lookup) = &answer {
-                        cache.insert(ip.to_owned(), lookup.clone()).await;
+                        cache.insert(key.to_owned(), lookup.clone()).await;
                     }
                     answer
                 }
             };
-            pilot.land(ip, &answer);
+            pilot.land(key, &answer);
             return answer;
         }
     }
 
-    async fn serve(&self, ip: &str, retries: u32, timeout: Duration) -> Result<Lookup, Error> {
+    async fn serve(
+        &self,
+        ip: &str,
+        agent: Option<&str>,
+        retries: u32,
+        timeout: Duration,
+    ) -> Result<Lookup, Error> {
         let path = format!("/{}", encode_path_segment(ip));
+        let query = agent_query(agent);
         let answer: LookupResponse =
-            with_retry(retries, || self.0.transport.get_json(&path, &[], timeout)).await?;
+            with_retry(retries, || self.0.transport.get_json(&path, &query, timeout)).await?;
         Ok(Lookup::served(answer))
     }
 
@@ -165,11 +181,13 @@ impl Client {
         self.my_ip_with(LookupOptions::new()).await
     }
 
-    /// [`Client::my_ip`], with this call's own retry budget and timeout.
+    /// [`Client::my_ip`], with this call's own retry budget, timeout and user
+    /// agent. Uncached with an agent too.
     pub async fn my_ip_with(&self, opts: LookupOptions) -> Result<Lookup, Error> {
         let timeout = self.call_timeout(opts.timeout)?;
+        let query = agent_query(opts.agent());
         let answer: LookupResponse = with_retry(opts.retries.unwrap_or(self.0.retries), || {
-            self.0.transport.get_json("/myip", &[], timeout)
+            self.0.transport.get_json("/myip", &query, timeout)
         })
         .await?;
         Ok(Lookup::served(answer))
@@ -199,8 +217,13 @@ impl Client {
     }
 
     /// [`Client::my_entitlement`], with this call's own retry budget and timeout.
+    /// A user agent is refused as a bad request: the entitlement classifies no
+    /// address, so it has nothing to judge one against.
     pub async fn my_entitlement_with(&self, opts: LookupOptions) -> Result<Entitlement, Error> {
         let timeout = self.call_timeout(opts.timeout)?;
+        if opts.agent().is_some() {
+            return Err(Error::Config("my_entitlement takes no user agent".to_owned()));
+        }
         with_retry(opts.retries.unwrap_or(self.0.retries), || {
             self.0.transport.get_json("/api/v1/entitlement", &[], timeout)
         })
@@ -223,6 +246,10 @@ impl Client {
     /// address in a request of two or more carries an unauthorized error, and
     /// a free-plan key's request of two or more a bad request (HTTP 402). A
     /// request of one address is answered as its lookup would be.
+    ///
+    /// With [`BatchOptions::user_agents`], each address named there is sent
+    /// with its agent, and its answer cached and shared on the address and that
+    /// agent together, as [`Client::lookup`]'s is.
     pub async fn lookup_batch<I, S>(
         &self,
         ips: I,
@@ -233,9 +260,20 @@ impl Client {
         S: AsRef<str>,
     {
         // An IPv4-mapped address is looked up as the IPv4 address it carries,
-        // once, and its answer keyed as the caller passed it.
+        // with the agent named for the address as the caller passed it, once per
+        // pair, and its answer keyed as the caller passed it.
         let asked = dedupe(ips);
-        let wire: Vec<String> = asked.iter().map(|ip| unmapped(ip).into_owned()).collect();
+        let mut pairs: HashMap<String, Pair> = HashMap::with_capacity(asked.len());
+        let wire: Vec<String> = asked
+            .iter()
+            .map(|ip| {
+                let agent = opts.agent_for(ip).map(str::to_owned);
+                let ip = unmapped(ip).into_owned();
+                let key = answer_key(&ip, agent.as_deref()).into_owned();
+                pairs.entry(key.clone()).or_insert(Pair { key: key.clone(), ip, agent });
+                key
+            })
+            .collect();
         let unique = dedupe(&wire);
         let retries = opts.retries.unwrap_or(self.0.retries);
         let concurrency = opts.concurrency.unwrap_or(self.0.concurrency);
@@ -253,8 +291,9 @@ impl Client {
             HashMap::with_capacity(unique.len());
         let mut pending: Vec<String> = Vec::new();
         for ip in &unique {
-            if is_bogon(ip) {
-                answers.insert(ip.clone(), Ok(bogon_lookup(ip)));
+            let address = &pairs[ip].ip;
+            if is_bogon(address) {
+                answers.insert(ip.clone(), Ok(bogon_lookup(address)));
                 continue;
             }
             if let Some(cache) = &self.0.cache {
@@ -275,7 +314,7 @@ impl Client {
             Some(_) => self.0.flights.board(pending.iter().map(String::as_str)),
             None => self.0.flights.board([]),
         };
-        let mut send: Vec<String> = Vec::with_capacity(pending.len());
+        let mut send: Vec<Pair> = Vec::with_capacity(pending.len());
         for ip in pending {
             if joined.iter().any(|(joined_ip, _)| *joined_ip == ip) {
                 continue;
@@ -288,14 +327,14 @@ impl Client {
                     continue;
                 }
             }
-            send.push(ip);
+            send.push(pairs[&ip].clone());
         }
 
         // buffer_unordered completes out of order, so each chunk's answers are
         // gathered as they land and the map is assembled in input order at the
         // end, which is what keeps it insertion-ordered whatever order the
         // network answers in.
-        let chunks: Vec<Vec<String>> = send.chunks(BATCH_MAX).map(<[String]>::to_vec).collect();
+        let chunks = chunked(send);
         {
             let mut stream = futures_util::stream::iter(chunks)
                 .map(|chunk| async move { self.lookup_chunk(chunk, retries, timeout).await })
@@ -314,8 +353,13 @@ impl Client {
                 // Its leader was dropped before the answer landed, so this one
                 // goes alone, sharing whatever is in flight by then.
                 Err(_) => {
-                    let opts = LookupOptions { retries: Some(retries), timeout: Some(timeout) };
-                    self.lookup_with(&ip, opts).await
+                    let pair = &pairs[&ip];
+                    let opts = LookupOptions {
+                        retries: Some(retries),
+                        timeout: Some(timeout),
+                        user_agent: pair.agent.clone(),
+                    };
+                    self.lookup_with(&pair.ip, opts).await
                 }
             };
             answers.insert(ip, answer);
@@ -343,31 +387,40 @@ impl Client {
             .collect()
     }
 
-    /// One `POST /batch`, mapped back onto the addresses it was asked about. A
-    /// chunk-level failure - the call refused, the transport failing, the
-    /// retries exhausted - becomes every address's error, exactly as it would
-    /// have been had each been looked up alone.
+    /// One `POST /batch`, mapped back onto the pairs it was asked about, keyed
+    /// by each pair's cache key. A chunk-level failure - the call refused, the
+    /// transport failing, the retries exhausted - becomes every address's
+    /// error, exactly as it would have been had each been looked up alone.
+    /// `user_agents` goes only with a chunk where some address carries an agent,
+    /// keyed by the address as `ips` sends it, and never as an empty map.
     async fn lookup_chunk(
         &self,
-        chunk: Vec<String>,
+        chunk: Vec<Pair>,
         retries: u32,
         timeout: Duration,
     ) -> Vec<(String, Result<Lookup, Error>)> {
-        let request = BatchLookupRequest { ips: chunk.clone(), user_agents: None };
+        let agents: HashMap<String, String> =
+            chunk.iter().filter_map(|pair| Some((pair.ip.clone(), pair.agent.clone()?))).collect();
+        let request = BatchLookupRequest {
+            ips: chunk.iter().map(|pair| pair.ip.clone()).collect(),
+            user_agents: (!agents.is_empty()).then_some(agents),
+        };
         let answered: Result<BatchAnswer, Error> =
             with_retry(retries, || self.0.transport.post_json("/batch", &request, timeout)).await;
         let mut body = match answered {
             Ok(body) => body,
-            Err(err) => return chunk.into_iter().map(|ip| (ip, Err(err.restated()))).collect(),
+            Err(err) => {
+                return chunk.into_iter().map(|pair| (pair.key, Err(err.restated()))).collect();
+            }
         };
         let mut out = Vec::with_capacity(chunk.len());
-        for ip in chunk {
+        for Pair { key, ip, .. } in chunk {
             let answer = if let Some(served) = body.results.remove(&ip) {
                 match serde_json::from_value::<LookupResponse>(served) {
                     Ok(served) => {
                         let lookup = Lookup::served(served);
                         if let Some(cache) = &self.0.cache {
-                            cache.insert(ip.clone(), lookup.clone()).await;
+                            cache.insert(key.clone(), lookup.clone()).await;
                         }
                         Ok(lookup)
                     }
@@ -389,7 +442,7 @@ impl Client {
                     retry_after: None,
                 })
             };
-            out.push((ip, answer));
+            out.push((key, answer));
         }
         out
     }
@@ -623,12 +676,61 @@ fn unreadable_entry(ip: &str, err: &serde_json::Error) -> Error {
     }
 }
 
+/// One address a batch sends, with the agent it is sent with, and the key its
+/// answer is cached and shared under.
+#[derive(Clone)]
+struct Pair {
+    key: String,
+    ip: String,
+    agent: Option<String>,
+}
+
+/// A batch's chunks of at most [`BATCH_MAX`] pairs, none holding one address
+/// twice, since a request keys `user_agents` by address: `8.8.8.8` and
+/// `::ffff:8.8.8.8` passed with different agents go in two. Without such a pair
+/// the chunks are consecutive runs of the input.
+fn chunked(send: Vec<Pair>) -> Vec<Vec<Pair>> {
+    let mut chunks: Vec<(Vec<Pair>, HashSet<String>)> = Vec::new();
+    for pair in send {
+        let at = match chunks
+            .iter()
+            .position(|(chunk, held)| chunk.len() < BATCH_MAX && !held.contains(&pair.ip))
+        {
+            Some(at) => at,
+            None => {
+                chunks.push((Vec::new(), HashSet::new()));
+                chunks.len() - 1
+            }
+        };
+        chunks[at].1.insert(pair.ip.clone());
+        chunks[at].0.push(pair);
+    }
+    chunks.into_iter().map(|(chunk, _)| chunk).collect()
+}
+
+/// What an answer is cached and shared under: its address, or with a user
+/// agent the pair, since that answer carries the agent's verdict. The pair is
+/// length-prefixed, so no address and agent spell another pair's key.
+fn answer_key<'a>(ip: &'a str, agent: Option<&str>) -> Cow<'a, str> {
+    match agent {
+        None if !ip.contains('\0') => Cow::Borrowed(ip),
+        _ => Cow::Owned(format!("{}\0{ip}\0{}", ip.len(), agent.unwrap_or_default())),
+    }
+}
+
+/// The `user_agent` query parameter, absent for no agent: the API reads
+/// `user_agent=` as none too, but a request without it is the plain one.
+fn agent_query(agent: Option<&str>) -> Vec<(&'static str, &str)> {
+    agent.map(|agent| ("user_agent", agent)).into_iter().collect()
+}
+
 /// One call's overrides for [`Client::lookup_with`], [`Client::my_ip_with`] and
 /// [`Client::my_entitlement_with`].
 #[derive(Debug, Clone, Default)]
 pub struct LookupOptions {
     retries: Option<u32>,
     timeout: Option<Duration>,
+    user_agent: Option<String>,
 }
 
 impl LookupOptions {
@@ -647,6 +749,22 @@ impl LookupOptions {
         self.timeout = Some(timeout);
         self
     }
+
+    /// Sends the `User-Agent` header of the request you are deciding on with
+    /// this lookup. With every field, on a paid plan or the trial, the answer
+    /// then carries `user_agent`: the agent it names, and whether this address
+    /// bears that out (`verified` for a real Googlebot, `spoofed` for one posing
+    /// as it). Unlimited never answers one. An empty agent is none; a long one
+    /// is sent whole, and the API reads its first 1024 characters.
+    /// [`Client::my_entitlement_with`] refuses one as a bad request.
+    pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
+        self.user_agent = Some(agent.into());
+        self
+    }
+
+    fn agent(&self) -> Option<&str> {
+        self.user_agent.as_deref().filter(|agent| !agent.is_empty())
+    }
 }
 
 /// One batch's overrides for [`Client::lookup_batch`].
@@ -658,6 +776,7 @@ pub struct BatchOptions {
     retries: Option<u32>,
     concurrency: Option<usize>,
     timeout: Option<Duration>,
+    user_agents: Option<HashMap<String, String>>,
 }
 
 impl BatchOptions {
@@ -684,6 +803,26 @@ impl BatchOptions {
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
+    }
+
+    /// Sends each address's `User-Agent` with this batch, keyed by the address
+    /// exactly as you pass it to [`Client::lookup_batch`], as
+    /// [`LookupOptions::user_agent`] sends one with a lookup. An empty agent is
+    /// none, and an address it does not name is sent without one.
+    pub fn user_agents<I, K, V>(mut self, agents: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.user_agents =
+            Some(agents.into_iter().map(|(ip, agent)| (ip.into(), agent.into())).collect());
+        self
+    }
+
+    /// The agent sent with `ip`, as the caller passed it.
+    fn agent_for(&self, ip: &str) -> Option<&str> {
+        self.user_agents.as_ref()?.get(ip).map(String::as_str).filter(|agent| !agent.is_empty())
     }
 }
 

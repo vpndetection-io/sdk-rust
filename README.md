@@ -38,7 +38,7 @@ if let Some(asn) = result.asn.as_deref() {
 
 ### With an API key
 
-Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the `company` and the `abuse` contact, and the provider (its ID and its name), confidence and last-seen detail behind each flag. The plans differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
+Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the `company` and the `abuse` contact, the provider (its ID and its name), confidence and last-seen detail behind each flag, and `user_agent` when you send one ([below](#is-that-crawler-real)). The plans differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -69,6 +69,33 @@ Each attempt at a request gives up after 30 seconds, and `timeout` changes that.
 use std::time::Duration;
 
 let client = Client::builder().api_key(key).timeout(Duration::from_secs(5)).build()?;
+```
+
+### Is that crawler real?
+
+Pass the `User-Agent` header of the request you are deciding on, and on a paid plan or the trial the answer carries `user_agent`: the agent it names and whether this address bears it out. A real Googlebot's address reads `verified`, and a scraper posing as Googlebot `spoofed`:
+
+```rust
+use vpndetection::{BatchOptions, LookupOptions, Verdict};
+
+let result = client
+    .lookup_with("66.249.66.1", LookupOptions::new().user_agent(user_agent))
+    .await?;
+if let Some(ua) = result.user_agent.as_deref() {
+    println!("{} {}", ua.agent, ua.verdict);     // Googlebot verified
+    let real_crawler = ua.verdict == Verdict::Verified;
+}
+```
+
+The verdict is `verified`, `spoofed`, `unverifiable` (a bot nothing can confirm) or `not_bot` (a browser, an app or a script). An answer is cached on the address and the agent together, so the same address with another agent is a request of its own. An empty agent is none, a long one is sent whole, Unlimited never answers a verdict, and a private or reserved address is answered locally without one. `my_ip_with` takes one too, and a batch takes each address's agent keyed by the address as you list it:
+
+```rust
+let results = client
+    .lookup_batch(
+        ["66.249.66.1", "8.8.8.8"],
+        BatchOptions::new().user_agents([("66.249.66.1", user_agent)]),
+    )
+    .await;
 ```
 
 ### Your own address
@@ -299,7 +326,7 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-Unlimited leaves out `is_hosting`, `is_cdn`, the four proxy flags, the carrier, satellite and service flags, `bot`, `company` and `abuse`, and of the detail behind each flag it answers only Tor's and relay's; a free-plan key's answer carries `trial_expired`, true once its trial is spent, and a paid key's carries `cap_reached`, true once its organization's overage cap is reached and the answer has Unlimited's. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+Unlimited leaves out `is_hosting`, `is_cdn`, the four proxy flags, the carrier, satellite and service flags, `bot`, `user_agent`, `company` and `abuse`, and of the detail behind each flag it answers only Tor's and relay's; a free-plan key's answer carries `trial_expired`, true once its trial is spent, and a paid key's carries `cap_reached`, true once its organization's overage cap is reached and the answer has Unlimited's. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag

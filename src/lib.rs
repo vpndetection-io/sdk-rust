@@ -94,6 +94,10 @@ pub use generated::models::{
     DatabaseVersion, DbChecksums, Download, LookupResponse, ProxyDetail, PubproxyDetail, VpnDetail,
 };
 pub use generated::models::{DatabaseFormat, Standing};
+// A lookup's `user_agent`, answered when the call sent one: the agent it names
+// and the verdict on whether this address bears it out.
+pub use generated::models::UserAgentVerdict;
+pub use generated::models::user_agent_verdict::Verdict;
 // `license_type` is a NULLABLE enum, and naming one in the spec makes
 // openapi-python-client emit three identical enums unioned together - so it
 // stays inline, and the generator hangs its type off the model's own module

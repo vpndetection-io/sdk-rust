@@ -285,7 +285,7 @@ pub const WEB_KEYS: &[&str] = &[
 
 /// The keys of the objects every answer or a paid one carries beside the
 /// details: each key a populated one serves must be one of these.
-pub const OBJECTS: [(&str, &[&str]); 4] = [
+pub const OBJECTS: [(&str, &[&str]); 5] = [
     (
         "location",
         &[
@@ -326,6 +326,7 @@ pub const OBJECTS: [(&str, &[&str]); 4] = [
             "unvalidated_since",
         ],
     ),
+    ("user_agent", &["agent", "kind", "verdict"]),
 ];
 
 const CLASS_KEYS: &[&str] = &["provider", "provider_name", "confidence", "last_seen"];

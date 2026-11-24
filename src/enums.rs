@@ -15,6 +15,7 @@ use std::fmt;
 
 use crate::models::database::LicenseType;
 use crate::models::download::Outcome;
+use crate::models::user_agent_verdict::Verdict;
 use crate::models::{DatabaseFormat, Standing};
 
 /// Writes the `as_str` + `Display` pair for an enum the generator leaves bare.
@@ -67,6 +68,13 @@ wire_spelling!(Outcome {
     Expired => "expired",
     Unknown => "unknown",
     Unavailable => "unavailable",
+});
+
+wire_spelling!(Verdict {
+    Verified => "verified",
+    Spoofed => "spoofed",
+    Unverifiable => "unverifiable",
+    NotBot => "not_bot",
 });
 
 /// A format read off an answer, `version.formats[0]` say, can be handed to a
