@@ -38,10 +38,10 @@ pub struct EntitlementApikey {
 /// The plan behind the key, and the field tier it buys.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntitlementPlan {
-    /// The plan the organization is on, e.g. `max`: an identifier that is
+    /// The plan the organization is on, e.g. `data_4`: an identifier that is
     /// never renamed or reused, so compare against this and show `name`.
     pub key: String,
-    /// The plan's name, as the site and console show it, e.g. `Max`, and
+    /// The plan's name, as the site and console show it, e.g. `Data`, and
     /// `Unlimited` for the free plan. Show this rather than a name built from
     /// `key`: a plan's name can change, and its key never does.
     pub name: String,
