@@ -38,7 +38,7 @@ if let Some(asn) = result.asn.as_deref() {
 
 ### With an API key
 
-Every paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the `company` and the `abuse` contact, the provider (its ID and its name), confidence and last-seen detail behind each flag, and `user_agent` when you send one ([below](#is-that-crawler-real)). The plans differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
+A paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the `company` and the `abuse` contact, the provider (its ID and its name), confidence and last-seen detail behind each flag, and `user_agent` when you send one ([below](#is-that-crawler-real)). Its quotas differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -111,8 +111,8 @@ Same answer `lookup` would give for that address, and the same cost against your
 
 ```rust
 let acct = client.my_entitlement().await?;
-println!("{}", acct.plan.name);           // Max, what to show
-println!("{}", acct.plan.key);            // max, what to compare against
+println!("{}", acct.plan.name);           // Data, what to show
+println!("{}", acct.plan.key);            // data_4, what to compare against
 println!("{}", acct.usage.requests);      // 580
 println!("{}", acct.usage.window_end);    // when the allowance resets
 ```
