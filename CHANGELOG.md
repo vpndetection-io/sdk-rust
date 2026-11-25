@@ -2,6 +2,14 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.5.1 - 2026-11-25
+
+### Fixes
+
+- README: one paid plan, Data; the entitlement example names it ([`1d7fad8`](https://github.com/vpndetection-io/sdk-rust/commit/1d7fad8691cf8f0415ea3db8da2aa73883ae7a80))
+- Docs: the entitlement plan's example key and name are the Data plan's ([`27382fe`](https://github.com/vpndetection-io/sdk-rust/commit/27382fe4b6e6818fdf7d9a7c69ee5fe7a20d508d))
+- Spec 2026.11.25: doc comments name a paid plan, the entitlement example the Data plan ([`e9ce4a4`](https://github.com/vpndetection-io/sdk-rust/commit/e9ce4a40e3b13a12df62452e2ff5dc486fb12317))
+
 ## 6.5.0 - 2026-11-24
 
 ### Fixes
