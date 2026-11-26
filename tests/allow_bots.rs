@@ -1,19 +1,26 @@
-// `allow_bots`: the request's own User-Agent sent with its lookup, and a
-// verified crawler never refused. Every peer is a PUBLIC address, since a bogon
-// is answered locally and would pass every assertion here vacuously.
+// `allow_bots`: a crawler's User-Agent sent with its lookup, at most four an
+// address, and a verified crawler never refused. Every peer is a PUBLIC address,
+// since a bogon is answered locally and would pass every assertion here
+// vacuously.
 
 mod support;
 
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use support::{Call, Route, Stub};
+use support::{Call, Route, Stub, corpus};
 use vpndetection::middleware::{
-    Condition, ConditionError, Core, Lookup, OnMissingField, Options, RequestView, Warn,
+    Condition, ConditionError, Core, Lookup, MAX_AGENTS_PER_ADDRESS, OnMissingField, Options,
+    RequestView, Warn, names_crawler,
 };
 
 const PEER: &str = "66.249.66.1";
 const GOOGLEBOT: &str = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const CHROME: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+
+fn crawler(n: u32) -> String {
+    format!("Mozilla/5.0 (compatible; Examplebot/{n}.0)")
+}
 
 fn answer(verdict: Option<&str>) -> (String, Route) {
     let mut body = json!({ "ip": PEER, "is_vpn": false, "is_hosting": true });
@@ -49,12 +56,55 @@ fn core(stub: &Stub, options: Options) -> Core {
 }
 
 async fn evaluate(core: &Core, user_agent: Option<&str>) -> Result<Lookup, ConditionError> {
+    evaluate_from(core, PEER, user_agent).await
+}
+
+async fn evaluate_from(
+    core: &Core,
+    peer: &str,
+    user_agent: Option<&str>,
+) -> Result<Lookup, ConditionError> {
     let header = |name: &str| match name.eq_ignore_ascii_case("user-agent") {
         true => user_agent.map(str::to_owned),
         false => None,
     };
-    let framework_ip = || Some(PEER.to_owned());
+    let framework_ip = || Some(peer.to_owned());
     core.evaluate(&RequestView { header: &header, framework_ip: &framework_ip }).await
+}
+
+/// A bot's address as the API answers it: `user_agent` says `verified` for an
+/// agent that arrived and is absent for a lookup without one, as the real answer
+/// is, and `bot` is the operator's own record where given. The stub answers a
+/// path's sequence in order, so `with_agent` lists whether each request is
+/// expected to carry an agent, and a request the test did not count fails.
+fn bot_answers(peer: &str, bot: Option<serde_json::Value>, with_agent: &[bool]) -> Vec<Route> {
+    with_agent
+        .iter()
+        .map(|sent| {
+            let mut body = json!({ "ip": peer, "is_vpn": false, "is_bot": true });
+            if let Some(bot) = &bot {
+                body["bot"] = bot.clone();
+            }
+            if *sent {
+                body["user_agent"] =
+                    json!({ "agent": "Examplebot", "kind": "bot", "verdict": "verified" });
+            }
+            Route::ok(body.to_string())
+        })
+        .collect()
+}
+
+/// A core over the stub, refusing a bot, as an app refusing automation would.
+fn bot_core(stub: &Stub) -> Core {
+    let client = stub.client().api_key("key").no_cache().retries(0).build().expect("build");
+    let refuse_bots = vec![Condition::new().with("is_bot", true)];
+    Core::new(Options::new().client(client).allow_bots(true).block_condition(refuse_bots))
+        .expect("core")
+}
+
+/// What each lookup carried as its `user_agent`, in order, `None` for a bare one.
+fn agents_in_order(stub: &Stub) -> Vec<Option<String>> {
+    stub.requests().iter().map(|call| agents_sent(call).into_iter().next()).collect()
 }
 
 #[tokio::test]
@@ -138,4 +188,77 @@ async fn a_served_answer_without_a_verdict_is_reported_once() {
         Options::new().allow_bots(true).on_missing_field(OnMissingField::Ignore).on_warn(warn);
     evaluate(&self::core(&ignoring, options), Some(GOOGLEBOT)).await.expect("evaluated");
     assert!(quiet.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn only_an_agent_naming_a_crawler_is_sent_as_the_corpus_says() {
+    let agents = corpus::load().crawler_agents;
+    assert!(!agents.crawlers.is_empty() && !agents.others.is_empty());
+    for agent in &agents.crawlers {
+        assert!(names_crawler(agent), "{agent}");
+    }
+    for agent in &agents.others {
+        assert!(!names_crawler(agent), "{agent}");
+    }
+    for term in &agents.terms {
+        assert!(names_crawler(&format!("x {} y", term.to_uppercase())), "{term}");
+    }
+    // Only A-Z fold: the Kelvin sign lowercases to k in Unicode, and is no k here.
+    assert!(names_crawler("Mozilla/5.0 (compatible; Keenable-User)"));
+    assert!(!names_crawler("Mozilla/5.0 (compatible; \u{212A}eenable-User)"));
+
+    let stub = Stub::start([]).await;
+    stub.sequence(format!("/{PEER}"), bot_answers(PEER, None, &[false]));
+    let found = evaluate(&bot_core(&stub), Some(CHROME)).await.expect("evaluated");
+    assert_eq!(agents_in_order(&stub), [None], "a browser's agent stays off the lookup");
+    assert!(found.blocked);
+}
+
+#[tokio::test]
+async fn one_address_is_looked_up_with_at_most_four_crawler_agents_and_none_passes_past_them() {
+    assert_eq!(MAX_AGENTS_PER_ADDRESS, 4);
+    let other = "66.249.66.2";
+    let stub = Stub::start([]).await;
+    stub.sequence(
+        format!("/{PEER}"),
+        bot_answers(PEER, None, &[true, true, true, true, false, true]),
+    );
+    stub.sequence(format!("/{other}"), bot_answers(other, None, &[true]));
+    let core = bot_core(&stub);
+
+    for n in 1..=4 {
+        let found = evaluate(&core, Some(&crawler(n))).await.expect("evaluated");
+        assert!(!found.blocked, "agent {n}");
+    }
+    let past = evaluate(&core, Some(&crawler(5))).await.expect("evaluated");
+    assert!(past.blocked, "an agent past the bound was let through as verified");
+    assert!(past.result.expect("answered").user_agent.is_none());
+    let known = evaluate(&core, Some(&crawler(1))).await.expect("evaluated");
+    assert!(!known.blocked, "a known agent is still sent");
+    let sent: Vec<Option<String>> =
+        [Some(1), Some(2), Some(3), Some(4), None, Some(1)].map(|n| n.map(crawler)).into();
+    assert_eq!(agents_in_order(&stub), sent);
+
+    let elsewhere = evaluate_from(&core, other, Some(&crawler(5))).await.expect("evaluated");
+    assert!(!elsewhere.blocked, "each address has its own bound");
+    assert_eq!(agents_in_order(&stub).last(), Some(&Some(crawler(5))));
+}
+
+#[tokio::test]
+async fn past_the_bound_an_address_its_operator_vouches_for_still_passes() {
+    let stub = Stub::start([]).await;
+    let bot = json!({ "provider": "example", "verified": true });
+    stub.sequence(
+        format!("/{PEER}"),
+        bot_answers(PEER, Some(bot.clone()), &[true, true, true, true, false, false]),
+    );
+    let core = bot_core(&stub);
+
+    for n in 1..=5 {
+        let found = evaluate(&core, Some(&crawler(n))).await.expect("evaluated");
+        assert!(!found.blocked, "agent {n}");
+    }
+    assert_eq!(agents_in_order(&stub).last(), Some(&None));
+    let browser = evaluate(&core, Some(CHROME)).await.expect("evaluated");
+    assert!(browser.blocked, "a browser on that address is judged as the condition says");
 }

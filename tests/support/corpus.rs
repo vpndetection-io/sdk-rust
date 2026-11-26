@@ -25,6 +25,8 @@ pub struct Corpus {
     pub batch: Vec<BatchCase>,
     pub bogons: Bogons,
     pub middleware: Middleware,
+    #[serde(rename = "crawlerAgents")]
+    pub crawler_agents: CrawlerAgents,
     pub oauth: Oauth,
     pub vocabulary: Vocabulary,
 }
@@ -168,6 +170,17 @@ pub struct Middleware {
     pub conditions: Vec<ConditionCase>,
     #[serde(rename = "invalidConditions")]
     pub invalid_conditions: Vec<InvalidConditionCase>,
+}
+
+/// The crawler terms an `allow_bots` middleware matches an agent against, and
+/// the agents that must and must not match. A key this suite does not know fails
+/// to parse.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrawlerAgents {
+    pub terms: Vec<String>,
+    pub crawlers: Vec<String>,
+    pub others: Vec<String>,
 }
 
 #[derive(Deserialize)]

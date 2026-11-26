@@ -11,10 +11,13 @@
 //! application's decision.
 
 mod condition;
+mod crawlers;
 mod selectors;
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::collections::hash_map::RandomState;
+use std::hash::BuildHasher;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::Value as Json;
@@ -28,6 +31,24 @@ use crate::{Client, Error, LookupOptions, Verdict, is_bogon};
 /// quickly beats holding a visitor while we try again.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(2500);
 pub const DEFAULT_RETRIES: u32 = 0;
+
+/// The most crawler agents one address is looked up with while it is
+/// remembered, which is an hour from its first.
+pub const MAX_AGENTS_PER_ADDRESS: usize = 4;
+
+/// How long an address's crawler agents are remembered: the client's default
+/// cache TTL.
+const AGENTS_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// How many addresses are remembered at once.
+const AGENTS_ADDRESSES: u64 = 10_000;
+
+/// Whether a `User-Agent` names a crawler, the only kind of agent whose verdict
+/// can be `verified` or `spoofed`. It errs toward a match, which costs a lookup.
+pub fn names_crawler(agent: &str) -> bool {
+    let lower = agent.to_ascii_lowercase();
+    crawlers::CRAWLER_TERMS.iter().any(|term| lower.contains(term))
+}
 
 /// What to do when a condition names a member the plan does not serve.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -73,13 +94,17 @@ pub struct Options {
     /// Block when the lookup itself fails. Our outage should not become yours.
     pub fail_closed: bool,
 
-    /// Send the request's own `User-Agent` header with its lookup, and never
-    /// refuse a request whose answer's `user_agent` verdict is `verified`,
-    /// whatever [`Options::block_condition`] matches; the answer is still
-    /// attached. An absent or empty header sends none. A keyless client, or a
-    /// free key past its trial, is never answered a verdict, so nothing is let
-    /// through and [`Options::on_missing_field`] says so once. Off by default,
-    /// so the cache holds one answer per address rather than one per agent.
+    /// Send the request's own `User-Agent` header with its lookup when it
+    /// names a crawler, and never refuse a request whose answer's `user_agent`
+    /// verdict is `verified`, whatever [`Options::block_condition`] matches; the
+    /// answer is still attached. Any other agent, or none, is not sent, since its
+    /// verdict could only be `not_bot`. One address is looked up with at most
+    /// [`MAX_AGENTS_PER_ADDRESS`] crawler agents an hour: past those its lookup
+    /// sends none, and a request passes as a crawler only where the answer's
+    /// `bot.verified` is true. A keyless client, or a free key past its trial,
+    /// is never answered a verdict, so nothing is let through and
+    /// [`Options::on_missing_field`] says so once. Off by default, so the cache
+    /// holds one answer per address rather than one per agent.
     pub allow_bots: bool,
 
     pub on_missing_field: OnMissingField,
@@ -200,7 +225,7 @@ pub struct Core {
     selector: IpSelector,
     condition: Option<Conditions>,
     fail_closed: bool,
-    allow_bots: bool,
+    agents: Option<Agents>,
     on_missing_field: OnMissingField,
     on_warn: Option<Warn>,
     warned: Arc<Mutex<HashSet<String>>>,
@@ -235,7 +260,7 @@ impl Core {
             selector: options.ip_selector.unwrap_or_else(selectors::framework_ip),
             condition: options.block_condition,
             fail_closed: options.fail_closed,
-            allow_bots: options.allow_bots,
+            agents: options.allow_bots.then(Agents::new),
             on_missing_field: options.on_missing_field,
             on_warn: options.on_warn,
             warned: Arc::new(Mutex::new(HashSet::new())),
@@ -278,12 +303,15 @@ impl Core {
         }
 
         let mut lookup = LookupOptions::new();
-        let agent = match self.allow_bots {
-            true => (view.header)("user-agent").map(|agent| agent.trim().to_owned()),
-            false => None,
-        }
-        .filter(|agent| !agent.is_empty());
-        if let Some(agent) = &agent {
+        let claim = match &self.agents {
+            Some(agents) => agents.claim(&ip, (view.header)("user-agent").as_deref()).await,
+            None => None,
+        };
+        let agent = match &claim {
+            Some(Claim::Sent(agent)) => Some(agent),
+            _ => None,
+        };
+        if let Some(agent) = agent {
             lookup = lookup.user_agent(agent.clone());
         }
         let result = match self.client.lookup_with(&ip, lookup).await {
@@ -306,8 +334,15 @@ impl Core {
                     .to_owned(),
             )?;
         }
-        let verified = agent.is_some()
-            && result.user_agent.as_ref().is_some_and(|ua| ua.verdict == Verdict::Verified);
+        let verified = match &claim {
+            Some(Claim::Sent(_)) => {
+                result.user_agent.as_ref().is_some_and(|ua| ua.verdict == Verdict::Verified)
+            }
+            Some(Claim::PastBound) => {
+                result.bot.as_ref().is_some_and(|bot| bot.verified == Some(true))
+            }
+            None => false,
+        };
 
         let blocked = match &self.condition {
             None => false,
@@ -367,3 +402,56 @@ impl Core {
         }
     }
 }
+
+/// What a request's crawler agent comes to.
+enum Claim {
+    /// The agent the lookup sends.
+    Sent(String),
+    /// The address already has [`MAX_AGENTS_PER_ADDRESS`] other agents, so the
+    /// lookup sends none.
+    PastBound,
+}
+
+/// The crawler agents each address was looked up with. Only a crawler's agent is
+/// sent, and an address claiming more than [`MAX_AGENTS_PER_ADDRESS`] of them in
+/// an hour sends none past those, so a visitor inventing an agent per request
+/// spends at most that many lookups.
+///
+/// An agent is kept as a hash under a key drawn per process, so a long one costs
+/// eight bytes and no agent can be made to collide with another.
+#[derive(Clone)]
+struct Agents {
+    seen: moka::future::Cache<String, Arc<Mutex<Vec<u64>>>>,
+    hasher: RandomState,
+}
+
+impl Agents {
+    fn new() -> Self {
+        // An entry is written once, when the address sends its first agent, and
+        // later agents go into its list: a rewrite would restart the hour.
+        let seen = moka::future::Cache::builder()
+            .max_capacity(AGENTS_ADDRESSES)
+            .time_to_live(AGENTS_TTL)
+            .build();
+        Self { seen, hasher: RandomState::new() }
+    }
+
+    /// What this request's agent comes to, or `None` when it names no crawler.
+    async fn claim(&self, ip: &str, header: Option<&str>) -> Option<Claim> {
+        let agent = header.map(str::trim).filter(|agent| names_crawler(agent))?;
+        let known = self.seen.get_with(ip.to_owned(), async { Arc::default() }).await;
+        let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
+        let hash = self.hasher.hash_one(agent);
+        if known.contains(&hash) {
+            return Some(Claim::Sent(agent.to_owned()));
+        }
+        if known.len() >= MAX_AGENTS_PER_ADDRESS {
+            return Some(Claim::PastBound);
+        }
+        known.push(hash);
+        Some(Claim::Sent(agent.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod tests;
