@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.6.1 - 2026-11-26
+
+### Fixes
+
+- Middleware: a condition on the verdict is no plan gap for a request that sent no agent ([`19d837c`](https://github.com/vpndetection-io/sdk-rust/commit/19d837cfe71bb8976090768af9821881bdef7ee2))
+
 ## 6.6.0 - 2026-11-26
 
 ### Features
