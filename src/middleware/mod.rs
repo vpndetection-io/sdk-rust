@@ -352,18 +352,27 @@ impl Core {
                 // name, and rendering it for every request that never had a
                 // policy would be pure cost.
                 let answer = serde_json::to_value(&result.answer).unwrap_or(Json::Null);
-                self.report_missing(condition, &answer)?;
+                // A request that sent no agent has no verdict to lack, whatever the plan serves.
+                let unsent: &[&str] =
+                    if self.agents.is_some() && agent.is_none() { &["user_agent"] } else { &[] };
+                self.report_missing(condition, &answer, unsent)?;
                 condition::matches(condition, &answer)
             }
         };
         Ok(Lookup { blocked, ip: Some(ip), result: Some(result), error: None })
     }
 
-    fn report_missing(&self, condition: &[Condition], answer: &Json) -> Result<(), ConditionError> {
+    fn report_missing(
+        &self,
+        condition: &[Condition],
+        answer: &Json,
+        unsent: &[&str],
+    ) -> Result<(), ConditionError> {
         if self.on_missing_field == OnMissingField::Ignore {
             return Ok(());
         }
-        let missing = condition::missing_members(condition, answer);
+        let mut missing = condition::missing_members(condition, answer);
+        missing.retain(|member| !unsent.contains(&member.as_str()));
         if missing.is_empty() {
             return Ok(());
         }

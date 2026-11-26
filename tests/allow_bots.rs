@@ -262,3 +262,67 @@ async fn past_the_bound_an_address_its_operator_vouches_for_still_passes() {
     let browser = evaluate(&core, Some(CHROME)).await.expect("evaluated");
     assert!(browser.blocked, "a browser on that address is judged as the condition says");
 }
+
+/// A core refusing a forged crawler, as an app that only distrusts a spoofed
+/// agent would, over the stub's bot address.
+fn forged_core(stub: &Stub, options: Options) -> Core {
+    let client = stub.client().api_key("key").no_cache().retries(0).build().expect("build");
+    let forged =
+        vec![Condition::new().with("user_agent", Condition::new().with("verdict", "spoofed"))];
+    Core::new(options.client(client).block_condition(forged)).expect("core")
+}
+
+/// The bot's answers in order: `user_agent` says `spoofed` for a request that
+/// carried an agent and is absent for one that carried none.
+fn spoofed_answers(with_agent: &[bool]) -> Vec<Route> {
+    with_agent
+        .iter()
+        .map(|sent| {
+            let mut body = json!({ "ip": PEER, "is_vpn": false, "is_bot": true });
+            if *sent {
+                body["user_agent"] =
+                    json!({ "agent": "Examplebot", "kind": "bot", "verdict": "spoofed" });
+            }
+            Route::ok(body.to_string())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_condition_on_the_verdict_is_no_plan_gap_for_a_request_that_sent_no_agent() {
+    for header in [Some(CHROME), None] {
+        let stub = Stub::start([]).await;
+        stub.sequence(format!("/{PEER}"), spoofed_answers(&[false]));
+        let (seen, warn) = warnings();
+        let options =
+            Options::new().allow_bots(true).on_missing_field(OnMissingField::Fail).on_warn(warn);
+        let found = evaluate(&forged_core(&stub, options), header).await.expect("evaluated");
+        assert!(!found.blocked, "{header:?}");
+        assert_eq!(agents_in_order(&stub), [None], "{header:?}");
+        assert!(seen.lock().unwrap().is_empty(), "{header:?}: warned with no agent sent");
+    }
+
+    let stub = Stub::start([]).await;
+    stub.sequence(format!("/{PEER}"), spoofed_answers(&[true, true, true, true, false]));
+    let options = Options::new().allow_bots(true).on_missing_field(OnMissingField::Fail);
+    let core = forged_core(&stub, options);
+    for n in 1..=4 {
+        let found = evaluate(&core, Some(&crawler(n))).await.expect("evaluated");
+        assert!(found.blocked, "agent {n}: a spoofed crawler");
+    }
+    let past = evaluate(&core, Some(&crawler(5))).await.expect("past the bound, no gap either");
+    assert!(!past.blocked, "past the bound there is no verdict to match");
+    assert_eq!(agents_in_order(&stub).last(), Some(&None));
+
+    // Off, no agent is ever sent, so the condition can never match, and says so.
+    let off = Stub::start([answer(None)]).await;
+    let (seen, warn) = warnings();
+    let core = forged_core(&off, Options::new().on_warn(warn));
+    for _ in 0..2 {
+        let found = evaluate(&core, Some(GOOGLEBOT)).await.expect("evaluated");
+        assert!(!found.blocked);
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(seen[0].contains("user_agent"), "{}", seen[0]);
+}
