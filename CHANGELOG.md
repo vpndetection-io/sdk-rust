@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.6.0 - 2026-11-26
+
+### Features
+
+- Middleware: allow_bots sends only a crawler's User-Agent, at most four an address ([`7efe4a5`](https://github.com/vpndetection-io/sdk-rust/commit/7efe4a5680c0ac5738f3685ac66b492113794e63))
+
 ## 6.5.1 - 2026-11-25
 
 ### Fixes
