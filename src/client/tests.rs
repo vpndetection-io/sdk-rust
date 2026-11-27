@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Client;
+use crate::lookup::Served;
 use crate::models::LookupResponse;
 use crate::support;
 use crate::{BatchOptions, Lookup};
@@ -52,8 +53,9 @@ fn expiry(client: &Client, ip: &str) -> Instant {
         .unwrap_or_else(|| panic!("{ip} was not cached"))
 }
 
-fn served(ip: &str) -> Lookup {
-    Lookup::served(serde_json::from_value::<LookupResponse>(flagged(ip)).expect("an answer"))
+fn served(ip: &str) -> Served {
+    let answer = serde_json::from_value::<LookupResponse>(flagged(ip)).expect("an answer");
+    Served::whole(Lookup::served(answer))
 }
 
 #[tokio::test]

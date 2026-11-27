@@ -192,9 +192,9 @@ async fn a_condition_reaches_the_evidence_fields() {
     );
 }
 
-/// `is_bot` is answered on every plan, so a condition on it blocks a bot's
-/// address and lets any other through, and a paid answer's `bot` can be
-/// matched on whether its operator vouches for the address.
+/// `is_bot` is a paid plan's, so on an answer that serves it a condition on it
+/// blocks a bot's address and lets any other through, and the answer's `bot`
+/// can be matched on whether its operator vouches for the address.
 #[tokio::test]
 async fn a_condition_on_is_bot_blocks_a_bots_address() {
     const BOT_IP: &str = "66.249.66.1";
@@ -220,6 +220,68 @@ async fn a_condition_on_is_bot_blocks_a_bots_address() {
             "an address no bot uses must pass"
         );
     }
+}
+
+/// The network's type is a paid plan's, held `String` and read empty when it is
+/// absent: the core reads the wire, so on an Unlimited answer a condition on it
+/// is a plan gap named by its path, on the first request and from the cache, and
+/// a type the answer serves is judged as served.
+#[tokio::test]
+async fn a_condition_on_the_networks_type_reports_the_plan_gap_on_unlimited() {
+    let with_type = |ip: &str, kind: &str| {
+        answer(
+            ip,
+            json!({ "is_vpn": false, "asn": { "asn": 9009, "name": "M247 Europe SRL",
+            "domain": "m247global.com", "type": kind, "prefix": "146.70.116.0/24",
+            "country": "RO", "rpki_status": "valid" } }),
+        )
+    };
+    let stub = Stub::start([
+        answer(
+            PUBLIC_IP,
+            json!({ "is_vpn": false, "asn": { "asn": 9009, "name": "M247 Europe SRL",
+            "domain": "m247global.com", "prefix": "146.70.116.0/24",
+            "country": "RO", "rpki_status": "valid" } }),
+        ),
+        with_type("66.249.66.1", "hosting"),
+        with_type("66.249.66.2", "isp"),
+    ])
+    .await;
+    let (seen, warn) = warnings();
+    let core = |on: OnMissingField| {
+        let client = stub.client().retries(0).build().expect("build");
+        Core::new(
+            Options::new()
+                .client(client)
+                .block_condition(vec![Condition::from([(
+                    "asn",
+                    Condition::from([("type", "hosting")]),
+                )])])
+                .on_missing_field(on)
+                .on_warn(warn.clone()),
+        )
+        .expect("core")
+    };
+
+    let strict = core(OnMissingField::Fail);
+    for round in ["first", "cached"] {
+        let err = Req::from(PUBLIC_IP).evaluate(&strict).await.expect_err(round);
+        assert!(err.to_string().contains("asn.type"), "{round}: {err}");
+    }
+    assert_eq!(stub.count(), 1, "the second request was not a cache hit");
+
+    let lenient = core(OnMissingField::Warn);
+    for _ in 0..2 {
+        let found = Req::from(PUBLIC_IP).evaluate(&lenient).await.expect("evaluate");
+        assert!(!found.blocked, "a type the plan lacks never matches");
+    }
+    let reported = seen.lock().unwrap().clone();
+    assert_eq!(reported.len(), 1, "warned once");
+    assert!(reported[0].contains("asn.type"), "named by its path: {}", reported[0]);
+
+    assert!(Req::from("66.249.66.1").evaluate(&strict).await.expect("evaluate").blocked);
+    let other = Req::from("66.249.66.2").evaluate(&strict).await.expect("a served type");
+    assert!(!other.blocked, "another served type is judged as served");
 }
 
 #[tokio::test]

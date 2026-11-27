@@ -389,6 +389,15 @@ pub fn assert_shape(answer: &Answer) {
             }
         }
     }
+    // The AS's `type` is a paid plan's, so an answer carries it or does not: the
+    // client holds a served one as served and a missing one empty.
+    if let Some(asn) = answer.wire.get("asn") {
+        let served = asn.get("type").map(|kind| {
+            kind.as_str().unwrap_or_else(|| panic!("{tier}: asn.type must be a string: {kind}"))
+        });
+        let held = answer.result.asn.as_deref().map(|asn| asn.r#type.as_str());
+        assert_eq!(held, Some(served.unwrap_or("")), "{tier}: asn.type is read as the wire has it");
+    }
     if let Some(hostname) = answer.wire.get("hostname") {
         assert!(hostname.is_string(), "{tier}: hostname must be a string: {hostname}");
     }

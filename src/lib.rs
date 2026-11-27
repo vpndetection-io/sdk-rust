@@ -4,8 +4,9 @@
 //!
 //! Start with [`Client::new`] and [`Client::lookup`]. No API key is needed:
 //! without one a lookup is on Unlimited, the free plan, answering `ip`,
-//! `is_vpn`, the Tor and relay members, `is_bot`, `is_anycast`, `hostname`,
-//! `location` and `asn` with no daily or monthly cap. A batch needs a paid plan.
+//! `is_vpn`, the Tor and relay members, `is_anycast`, `hostname`, `location`
+//! and `asn` without its `type`, with no daily or monthly cap. A batch needs a
+//! paid plan.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), vpndetection::Error> {
@@ -23,7 +24,9 @@
 //! decides which of them the API sends. `None` means "not in your plan", which
 //! is a different answer from `Some(false)`. Read the option itself wherever
 //! that matters, or `unwrap_or(false)` when all you want to know is whether an
-//! address is flagged.
+//! address is flagged. The exception is the network's `asn.type`, a paid plan's
+//! member that stays a `String` and reads empty when your plan leaves it out,
+//! until the next major makes it an `Option`.
 //!
 //! # Async only
 //!

@@ -1,5 +1,8 @@
 use std::ops::Deref;
 
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
+
 use crate::models::LookupResponse;
 
 /// What a lookup answers.
@@ -10,13 +13,18 @@ use crate::models::LookupResponse;
 /// This is the single most important semantic in the library, and it is why
 /// every tier-gated flag is an `Option<bool>` rather than a `bool`.
 ///
+/// One member is the exception, kept a `String` for the type it has always had:
+/// the network's `asn.type`. It is a paid plan's or the trial's, and an answer
+/// that leaves it out, Unlimited's, reads `""`. The next major makes it an
+/// `Option<String>`.
+///
 /// A detail object that is present but empty means the flag above it is false,
 /// as does an empty `web` list.
 /// A populated one always carries every one of its keys, empty values included.
 ///
 /// The wire answer's fields are reachable straight off a `Lookup` through
 /// [`Deref`], so `result.is_vpn` and `result.vpn` read as if they were its own,
-/// and [`Lookup::answer`] is the untouched wire object.
+/// and [`Lookup::answer`] is the wire object.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lookup {
     /// True for reserved space (private, loopback, documentation and the like),
@@ -24,13 +32,63 @@ pub struct Lookup {
     /// carries the API's own `is_bogon`, and this reads it.
     pub is_bogon: bool,
 
-    /// The answer as it was served, with the wire's own optionality intact.
+    /// The answer as it was served, with the wire's own optionality intact but
+    /// for `asn.type`, which reads `""` when it left it out.
     pub answer: LookupResponse,
 }
 
 impl Lookup {
     pub(crate) fn served(answer: LookupResponse) -> Self {
         Self { is_bogon: answer.is_bogon.unwrap_or(false), answer }
+    }
+}
+
+/// The members a paid plan or the trial serves and Unlimited does not, held at
+/// the type they have always had until the next major, as JSON pointers into
+/// the wire answer: the AS's type, which the generator reads as required.
+pub(crate) const HELD: [&str; 1] = ["/asn/type"];
+
+/// A [`Lookup`] and which held members its wire answer left out. The public
+/// `String` reads those `""`; the middleware reads them as absent, which is
+/// what makes a condition on one report the plan gap instead of reading an
+/// empty value. It is what the cache and the requests in flight hold, so a
+/// cached answer keeps what the wire said.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Served {
+    pub(crate) lookup: Lookup,
+    pub(crate) absent: Vec<&'static str>,
+}
+
+impl Served {
+    /// An answer computed here, which carries every member.
+    pub(crate) fn whole(lookup: Lookup) -> Self {
+        Self { lookup, absent: Vec::new() }
+    }
+
+    pub(crate) fn from_value(wire: serde_json::Value) -> Result<Self, serde_json::Error> {
+        let absent = HELD.into_iter().filter(|member| wire.pointer(member).is_none()).collect();
+        let answer = serde_json::from_value::<LookupResponse>(wire)?;
+        Ok(Self { lookup: Lookup::served(answer), absent })
+    }
+
+    /// The answer as the wire served it: JSON that leaves out each held member
+    /// the wire left out.
+    pub(crate) fn wire(&self) -> serde_json::Value {
+        let mut wire = serde_json::to_value(&self.lookup.answer).unwrap_or(serde_json::Value::Null);
+        for path in &self.absent {
+            let Some((parent, member)) = path.rsplit_once('/') else { continue };
+            if let Some(members) = wire.pointer_mut(parent).and_then(|at| at.as_object_mut()) {
+                members.remove(member);
+            }
+        }
+        wire
+    }
+}
+
+impl<'de> Deserialize<'de> for Served {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = serde_json::Value::deserialize(deserializer)?;
+        Self::from_value(wire).map_err(D::Error::custom)
     }
 }
 

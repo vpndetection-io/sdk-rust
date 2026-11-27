@@ -273,26 +273,42 @@ pub(crate) fn matches(conditions: &[Condition], answer: &Json) -> bool {
     conditions.iter().any(|one| matches_object(one, Some(answer)))
 }
 
-/// The top-level members a condition names that this answer did not carry.
+/// The members a condition names that this answer did not carry: a top-level
+/// member, or a paid one inside an object every plan gets, by its path
+/// (`asn.type`).
 ///
 /// A field your plan does not include is absent rather than false, so a
 /// condition naming one can never match and the block would silently never
-/// fire. Gating is per top-level member, which is why only the first path
-/// segment is checked: a detail object present but empty is a real answer
-/// meaning the flag is false, not a plan gap.
+/// fire. An empty object is a real answer, meaning the flag above it is false,
+/// so nothing inside one is reported: `vpn` present but `{}` is not a plan gap.
+/// A populated object carries every member the plan includes, so a member
+/// missing there is one.
 pub(crate) fn missing_members(conditions: &[Condition], answer: &Json) -> Vec<String> {
     let mut missing: Vec<String> = Vec::new();
     for one in conditions {
-        for (member, want) in &one.0 {
-            if constraints(want) == 0 || missing.iter().any(|m| m == member) {
-                continue;
+        collect_missing(one, answer, "", &mut missing);
+    }
+    missing
+}
+
+fn collect_missing(condition: &Condition, served: &Json, prefix: &str, missing: &mut Vec<String>) {
+    for (member, want) in &condition.0 {
+        if constraints(want) == 0 {
+            continue;
+        }
+        let path = format!("{prefix}{member}");
+        let Some(got) = served.get(member) else {
+            if !missing.contains(&path) {
+                missing.push(path);
             }
-            if answer.get(member).is_none() {
-                missing.push(member.clone());
+            continue;
+        };
+        if let (Value::Nested(nested), Some(object)) = (want, got.as_object()) {
+            if !object.is_empty() {
+                collect_missing(nested, got, &format!("{path}."), missing);
             }
         }
     }
-    missing
 }
 
 /// Refuses a condition that constrains nothing.

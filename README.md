@@ -18,7 +18,7 @@ Requires Rust 1.85 or newer. Everything is `async` and runs on tokio.
 
 ## Usage
 
-**No API key needed to start.** Unlimited, the free plan, answers `ip`, `is_vpn`, Tor and relay detection, `is_bot` (whether a bot such as a crawler uses the address), `is_anycast`, `hostname` (the reverse DNS name), country-level `location` and `asn` with the AS's country and RPKI status, with no daily or monthly cap, with a key or without one.
+**No API key needed to start.** Unlimited, the free plan, answers `ip`, `is_vpn`, Tor and relay detection, `is_anycast`, `hostname` (the reverse DNS name), country-level `location` and `asn` with the AS's country and RPKI status but without its `type`, with no daily or monthly cap, with a key or without one.
 
 ```rust
 use vpndetection::Client;
@@ -27,7 +27,7 @@ let client = Client::new()?;
 
 let result = client.lookup("45.83.91.1").await?;
 println!("{}", result.is_vpn);                  // true
-println!("{:?}", result.is_bot);                // Some(false): no crawler or other bot uses it
+println!("{:?}", result.is_anycast);            // Some(false): not an anycast address
 if let Some(location) = result.location.as_deref() {
     println!("{}", location.country);           // the ISO 3166 country code
 }
@@ -38,7 +38,7 @@ if let Some(asn) = result.asn.as_deref() {
 
 ### With an API key
 
-A paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the `company` and the `abuse` contact, the provider (its ID and its name), confidence and last-seen detail behind each flag, and `user_agent` when you send one ([below](#is-that-crawler-real)). Its quotas differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
+A paid plan answers every field: `is_hosting`, `is_cdn` and the four proxy flags as well, `is_bot` (whether a bot such as a crawler uses the address), the carrier and satellite flags, the five service flags (SSH, SMTP, web, DNS resolver and BitTorrent), `bot` (whose bot it is and whether its operator vouches for the address), city-level `location`, the network's `type` in `asn`, the `company` and the `abuse` contact, the provider (its ID and its name), confidence and last-seen detail behind each flag, and `user_agent` when you send one ([below](#is-that-crawler-real)). Its quotas differ only in how many lookups they include, and a free account tries every field. Create a key in the [console](https://app.vpndetection.io), then pass it in:
 
 ```rust
 let client = Client::builder()
@@ -326,11 +326,12 @@ let result = runtime.block_on(client.lookup("45.83.91.1"))?;
 
 ### Absent is not false
 
-Unlimited leaves out `is_hosting`, `is_cdn`, the four proxy flags, the carrier, satellite and service flags, `bot`, `user_agent`, `company` and `abuse`, and of the detail behind each flag it answers only Tor's and relay's; a free-plan key's answer carries `trial_expired`, true once its trial is spent, and a paid key's carries `cap_reached`, true once its organization's overage cap is reached and the answer has Unlimited's. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
+Unlimited leaves out `is_hosting`, `is_cdn`, the four proxy flags, `is_bot`, the carrier, satellite and service flags, `bot`, `user_agent`, `company` and `abuse`, the network's `type` in `asn` among the paid members of the shared objects, and of the detail behind each flag it answers only Tor's and relay's; a free-plan key's answer carries `trial_expired`, true once its trial is spent, and a paid key's carries `cap_reached`, true once its organization's overage cap is reached and the answer has Unlimited's. Every field beyond `ip` and `is_vpn` is an `Option`, because your key decides which of them the API sends, except `asn.type`, which stays a `String` and reads empty when your plan leaves it out; the next major makes it an `Option`. `None` means "not in your plan", which is not the same answer as `Some(false)`, which means "checked, and no".
 
 ```rust
 result.is_hosting.unwrap_or(false);   // when you only want the flag
 result.is_hosting.is_none();          // on Unlimited: not in your plan
+result.asn.as_deref().map(|asn| asn.r#type.is_empty()); // Some(true) on Unlimited: not in your plan
 result.trial_expired == Some(true); // a free-plan key's trial is spent
 result.cap_reached == Some(true);   // a paid key past its overage cap
 ```

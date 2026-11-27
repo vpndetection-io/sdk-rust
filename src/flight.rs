@@ -15,12 +15,12 @@ use futures_util::future::{FutureExt, Shared};
 use tokio::sync::oneshot;
 
 use crate::error::Error;
-use crate::lookup::Lookup;
+use crate::lookup::Served;
 
 /// One address's request, as every caller awaiting it sees it land. It fails
 /// only when the caller leading it was dropped first, and a waiter then tries
 /// again rather than failing with it.
-pub(crate) type Flight = Shared<oneshot::Receiver<Arc<Result<Lookup, Error>>>>;
+pub(crate) type Flight = Shared<oneshot::Receiver<Arc<Result<Served, Error>>>>;
 
 #[derive(Debug, Default)]
 pub(crate) struct Flights(Mutex<HashMap<String, Flight>>);
@@ -55,7 +55,7 @@ impl Flights {
 /// caller leads a request of its own and every waiter tries again.
 pub(crate) struct Pilot<'a> {
     flights: &'a Flights,
-    led: HashMap<String, oneshot::Sender<Arc<Result<Lookup, Error>>>>,
+    led: HashMap<String, oneshot::Sender<Arc<Result<Served, Error>>>>,
 }
 
 impl Pilot<'_> {
@@ -66,7 +66,7 @@ impl Pilot<'_> {
     /// Hands every waiter the answer and takes the address off the board. Cache a
     /// served answer FIRST: a caller that missed the cache just before it landed
     /// finds no flight after this, and reads the cache again before it sends.
-    pub(crate) fn land(&mut self, ip: &str, answer: &Result<Lookup, Error>) {
+    pub(crate) fn land(&mut self, ip: &str, answer: &Result<Served, Error>) {
         if let Some(sender) = self.led.remove(ip) {
             self.flights.0.lock().expect("flights lock").remove(ip);
             let _ = sender.send(Arc::new(restate(answer)));
@@ -86,11 +86,11 @@ impl Drop for Pilot<'_> {
     }
 }
 
-/// A landed answer as one waiter's own: the lookup cloned, an error restated
+/// A landed answer as one waiter's own: the answer cloned, an error restated
 /// the way a batch restates a chunk's failure for each of its addresses.
-pub(crate) fn restate(answer: &Result<Lookup, Error>) -> Result<Lookup, Error> {
+pub(crate) fn restate(answer: &Result<Served, Error>) -> Result<Served, Error> {
     match answer {
-        Ok(lookup) => Ok(lookup.clone()),
+        Ok(served) => Ok(served.clone()),
         Err(err) => Err(err.restated()),
     }
 }

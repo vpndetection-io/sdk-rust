@@ -15,7 +15,7 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new()?;
     let result = client.lookup("45.83.91.1").await?;
     println!("{}", result.is_vpn);
-    println!("{:?}", result.is_bot);
+    println!("{:?}", result.is_anycast);
     if let Some(location) = result.location.as_deref() {
         println!("{}", location.country);
     }
@@ -123,6 +123,7 @@ async fn snippets() -> Result<(), Box<dyn std::error::Error>> {
 
     result.is_hosting.unwrap_or(false);
     result.is_hosting.is_none();
+    result.asn.as_deref().map(|asn| asn.r#type.is_empty());
     result.trial_expired == Some(true);
     result.cap_reached == Some(true);
     Ok(())

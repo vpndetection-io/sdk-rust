@@ -647,6 +647,99 @@ async fn an_as_without_its_country_or_rpki_status_is_a_retried_server_error() {
     }
 }
 
+/// The network's `type` is a paid plan's: an Unlimited answer carries none, and
+/// the `String` it has always been reads empty, from a lookup, my_ip, the cache
+/// and a batch entry alike. One that serves it reads as served.
+#[tokio::test]
+async fn an_answer_without_the_networks_type_reads_it_empty() {
+    let answer = |ip: &str, kind: &str| {
+        format!(
+            r#"{{"ip":"{ip}","is_vpn":false,"asn":{{"asn":15169,"name":"Google LLC","domain":"google.com"{kind},"prefix":"66.249.64.0/20","country":"US","rpki_status":"valid"}}}}"#
+        )
+    };
+    let served = answer("66.249.66.1", r#","type":"hosting""#);
+    let keyless = answer("45.83.91.1", "");
+    let stub = Stub::start([
+        ("/66.249.66.1".to_owned(), Route::ok(served)),
+        ("/45.83.91.1".to_owned(), Route::ok(keyless.clone())),
+        ("/myip".to_owned(), Route::ok(keyless)),
+        ("/8.8.4.4".to_owned(), Route::ok(answer("8.8.4.4", ""))),
+    ])
+    .await;
+    let client = stub.client().retries(0).build().expect("build");
+    let kind =
+        |lookup: &vpndetection::Lookup| lookup.asn.as_deref().expect("its AS").r#type.clone();
+
+    let paid = client.lookup("66.249.66.1").await.expect("lookup");
+    assert_eq!(kind(&paid), "hosting", "a served type reads as served");
+    let lookup = client.lookup("45.83.91.1").await.expect("an answer without the type");
+    assert_eq!(kind(&lookup), "", "an absent type reads empty");
+    assert_eq!(
+        lookup.asn.as_deref().expect("its AS").name,
+        "Google LLC",
+        "the rest reads as served"
+    );
+    let myip = client.my_ip().await.expect("my_ip without the type");
+    assert_eq!(kind(&myip), "", "my_ip reads it empty");
+    let again = client.lookup("45.83.91.1").await.expect("from the cache");
+    assert_eq!(kind(&again), "", "a cached answer reads it empty");
+
+    let mut batch =
+        client.lookup_batch(["66.249.66.1", "8.8.4.4"], BatchOptions::new().concurrency(1)).await;
+    let paid = batch.swap_remove("66.249.66.1").expect("answered").expect("a batch entry");
+    assert_eq!(kind(&paid), "hosting", "a batch entry that serves it");
+    let plain = batch.swap_remove("8.8.4.4").expect("answered").expect("a batch entry");
+    assert_eq!(kind(&plain), "", "a batch entry without it");
+}
+
+/// A network type the wire does serve is read as strictly as it was when the
+/// spec required it: no number, boolean, list, object or null stands in for the
+/// string.
+#[tokio::test]
+async fn a_network_type_that_is_no_string_is_a_retried_server_error() {
+    let wrong = [
+        ("a number", serde_json::json!(1)),
+        ("a boolean", serde_json::json!(true)),
+        ("a list", serde_json::json!(["hosting"])),
+        ("an object", serde_json::json!({})),
+        ("null", serde_json::Value::Null),
+    ];
+    let answer = |ip: &str, kind: serde_json::Value| {
+        serde_json::json!({ "ip": ip, "is_vpn": false, "asn": {
+            "asn": 15169, "name": "Google LLC", "domain": "google.com", "type": kind,
+            "prefix": "66.249.64.0/20", "country": "US", "rpki_status": "valid" } })
+    };
+    for (name, value) in wrong {
+        let body = answer("9.9.9.9", value);
+        for (call, path) in [("lookup", "/9.9.9.9"), ("my_ip", "/myip")] {
+            let stub = Stub::start([]).await;
+            stub.sequence(path, [Route::ok(body.to_string()), Route::ok(body.to_string())]);
+            let client = stub.client().no_cache().retries(1).build().expect("build");
+            let outcome = match call {
+                "lookup" => client.lookup("9.9.9.9").await,
+                _ => client.my_ip().await,
+            };
+            let Err(err) = outcome else { panic!("{call}, {name}: read as an answer") };
+            assert_eq!(err.kind(), ErrorKind::ServerError, "{call}, {name}: {err}");
+            assert_eq!(err.status(), Some(200), "{call}, {name}: the status");
+            assert_eq!(stub.count(), 2, "{call}, {name}: retried like an outage");
+        }
+
+        let stub = Stub::start([]).await;
+        let results =
+            serde_json::json!({ "9.9.9.9": body, "8.8.4.4": answer("8.8.4.4", "isp".into()) });
+        let entries = serde_json::json!({ "results": results, "errors": {} });
+        stub.sequence("/batch", [Route::ok(entries.to_string())]);
+        let client = stub.client().retries(0).build().expect("build");
+        let mut answers = client.lookup_batch(["9.9.9.9", "8.8.4.4"], BatchOptions::new()).await;
+        let Err(err) = answers.swap_remove("9.9.9.9").expect("answered") else {
+            panic!("lookup_batch, {name}: read as an answer")
+        };
+        assert_eq!(err.kind(), ErrorKind::ServerError, "lookup_batch, {name}: {err}");
+        answers.swap_remove("8.8.4.4").expect("answered").expect("the other entry");
+    }
+}
+
 /// A date member is read only in the form its `format` names, on a day and at
 /// a time that exist. chrono's own reader took `2026-10-5`, ` 2026-10-20`,
 /// `+0500`, a space for the `T` and a leap second as some date through 5.9.0,

@@ -57,21 +57,29 @@ NAMES="${NAMES},databaseChecksum_200_response=DatabaseChecksumsResponse"
 rm -rf .gen
 mkdir -p .gen/spec
 
-# The generator reads a copy of the pinned spec with three of its changes held
+# The generator reads a copy of the pinned spec with four of its changes held
 # back until a major, so a minor changes no public type: the satellite's `asn`
 # stays the i32 it has been, not the i64 that `format: int64` asks for; the
 # AS's `country` and `rpki_status` stay Option<String>, as they were while the
-# spec left them optional; and the `first_seen` and `last_seen` of the bot,
-# SSH, SMTP, web, DNS resolver and BitTorrent details stay strings, as they
-# were before the spec named them `format: date`. The pin itself stays the
+# spec left them optional; the AS's `type` (spec 2026.11.26: Unlimited no
+# longer serves it) stays the plain String it has been, required again for the
+# generator, and one the wire leaves out reads "" below while a served one that
+# is no string still fails the call; and the `first_seen` and `last_seen` of
+# the bot, SSH, SMTP, web, DNS resolver and BitTorrent details stay strings, as
+# they were before the spec named them `format: date`. The pin itself stays the
 # published document. Any edit finding nothing to change stops the script,
 # rather than reaching the release unnoticed.
 SEEN="BotDetail SshDetail SmtpDetail WebDetail DnsResolverDetail BitTorrentDetail"
 SEEN="$SEEN" perl -0777 -pe '
     s{(\n    SatelliteDetail:\n(?: {6,}[^\n]*\n)*? {8}asn:\n {10}type: integer\n) {10}format: int64\n}{$1}
         or die "the satellite no longer gives its asn format: int64\n";
-    s{(\n    Asn:\n(?: {6,}[^\n]*\n)*? {6}required:\n(?: {8}- \w+\n)*?) {8}- country\n {8}- rpki_status\n}{$1}
-        or die "the AS no longer requires country and rpki_status\n";
+    s{(\n    Asn:\n(?: {6,}[^\n]*\n)*? {6}required:\n(?: {8}- \w+\n)*?) {8}- country\n {8}- rpki_status\n}{
+        my $list = $1;
+        die "the spec requires the AS type again: stop holding it\n" if $list =~ /^ {8}- type$/m;
+        $list =~ s/^( {8}- domain\n)/$1        - type\n/m
+            or die "the AS requires no domain to hold its type after\n";
+        $list;
+    }e or die "the AS no longer requires country and rpki_status\n";
     for my $schema (split " ", $ENV{SEEN}) {
         for my $member (qw(first_seen last_seen)) {
             s{(\n    $schema:\n(?: {6,}[^\n]*\n)*? {8}$member:\n {10}type: string\n) {10}format: date\n}{$1}
@@ -142,6 +150,15 @@ for member in country rpki_status; do
             or die "Asn no longer has an optional $m: teach this script its shape\n";
     ' src/generated/models/asn.rs
 done
+
+# The held AS type the wire leaves out reads "". src/lookup.rs keeps which
+# members the wire left out, for the middleware. A member that the generator
+# stops emitting as a plain `String` stops the script. The next major types it
+# `Option<String>`.
+perl -0777 -pi -e '
+    s/(#\[serde\(rename = "type")(\)\]\s+pub r#type: String,)/$1, default$2/
+        or die "Asn.type is no plain String member: teach this script its shape\n";
+' src/generated/models/asn.rs
 
 # The `first_seen` and `last_seen` held back as strings above are still dates
 # on the wire, so each reads through src/dates.rs, which refuses anything but
