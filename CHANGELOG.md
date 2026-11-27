@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.7.0 - 2026-11-27
+
+### Features
+
+- Read a keyless answer without the network's type ([`ead00dc`](https://github.com/vpndetection-io/sdk-rust/commit/ead00dcda8303c11f6048d8f59dcfe0a997a9295))
+
 ## 6.6.1 - 2026-11-26
 
 ### Fixes
