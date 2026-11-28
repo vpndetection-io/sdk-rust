@@ -326,3 +326,37 @@ async fn a_condition_on_the_verdict_is_no_plan_gap_for_a_request_that_sent_no_ag
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert!(seen[0].contains("user_agent"), "{}", seen[0]);
 }
+
+/// A bogon peer, local development behind no proxy, is answered locally in the
+/// widest shape and carries no verdict, and that is no plan gap: `Fail` used to
+/// answer an error to a crawler's request there, and `Warn` logged that the plan
+/// does not include `user_agent`. Every other test here uses a public peer.
+#[tokio::test]
+async fn a_bogon_peer_with_a_crawler_agent_is_no_plan_gap() {
+    let mut failures = Vec::new();
+    for peer in ["127.0.0.1", "10.0.0.1", "::1"] {
+        for action in [OnMissingField::Fail, OnMissingField::Warn] {
+            let stub = Stub::start([]).await;
+            let (seen, warn) = warnings();
+            let options = Options::new().allow_bots(true).on_missing_field(action).on_warn(warn);
+            let found = evaluate_from(&forged_core(&stub, options), peer, Some(GOOGLEBOT)).await;
+            match found {
+                Err(error) => failures.push(format!("{peer}, {action:?}: a plan gap: {error}")),
+                Ok(found) => {
+                    let bogon = found.result.as_ref().is_some_and(|result| result.is_bogon);
+                    if found.blocked || !bogon {
+                        failures
+                            .push(format!("{peer}, {action:?}: want an unblocked bogon answer"));
+                    }
+                }
+            }
+            for message in seen.lock().unwrap().iter().filter(|m| m.contains("does not include")) {
+                failures.push(format!("{peer}, {action:?}: warned of a plan gap: {message}"));
+            }
+            if stub.count() != 0 {
+                failures.push(format!("{peer}, {action:?}: a bogon reached the origin"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
