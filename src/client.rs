@@ -23,10 +23,10 @@ pub const DEFAULT_BASE_URL: &str = "https://api.vpndetection.io";
 
 const DEFAULT_CACHE_CAPACITY: u64 = 10_000;
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
-/// The longest an answer marked `trial_expired` or `cap_reached` is cached. A
-/// plan change or a raised cap ends what it says, so the client's TTL would
-/// keep serving it long after; not caching it at all would send every repeat of
-/// a busy address to the API.
+/// The longest an answer marked `trial_expired` or `cap_reached` is cached. It
+/// can change as soon as the organization's trial, plan or cap does, so the
+/// client's TTL would keep serving it long after; not caching it at all would
+/// send every repeat of a busy address to the API.
 const REDUCED_ANSWER_TTL: Duration = Duration::from_secs(60);
 const DEFAULT_CONCURRENCY: usize = 8;
 const DEFAULT_RETRIES: u32 = 2;
