@@ -2,6 +2,13 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff. Releases before 5.2.3 are described by their release commits.
 
+## 6.7.1 - 2026-11-28
+
+### Fixes
+
+- Middleware: a bogon's answer reports no missing member ([`8e1f069`](https://github.com/vpndetection-io/sdk-rust/commit/8e1f06925f5067edcc843538b19d9adcb2dcb4d2))
+- Re-pin the spec to 2026.11.27 ([`21c6188`](https://github.com/vpndetection-io/sdk-rust/commit/21c6188d6b204fb8559f5d83fb9dbe841c9d9f1c))
+
 ## 6.7.0 - 2026-11-27
 
 ### Features
